@@ -117,8 +117,12 @@ function GetExitCodeProcess(ProcessHandle: LongWord;
   external 'GetExitCodeProcess@kernel32.dll stdcall';
 function CloseHandle(Handle: LongWord): Boolean;
   external 'CloseHandle@kernel32.dll stdcall';
+function CreateFileW(FileName: String; DesiredAccess, ShareMode, SecurityAttributes,
+  CreationDisposition, FlagsAndAttributes, TemplateFile: LongWord): LongWord;
+  external 'CreateFileW@kernel32.dll stdcall';
 
 var
+  InstallFinished: Boolean;
   ModePage: TInputOptionWizardPage;
   StoragePage: TInputDirWizardPage;
   DependencyPage: TInputOptionWizardPage;
@@ -436,6 +440,65 @@ begin
   WizardForm.Refresh;
 end;
 
+{ True while a process holds Leadroom.exe open: a running program cannot be opened
+  for writing with no sharing. }
+function AppExeInUse: Boolean;
+var
+  Path: String;
+  Handle: LongWord;
+begin
+  Result := False;
+  Path := ExpandConstant('{app}\{#AppExeName}');
+  if not FileExists(Path) then Exit;
+  Handle := CreateFileW(Path, $40000000, 0, 0, 3, $80, 0);
+  if Handle = $FFFFFFFF then
+    Result := True
+  else
+    CloseHandle(Handle);
+end;
+
+{ The in-app updater starts Setup and then quits; a one-file app takes a few seconds
+  to let go of its files. A quiet Setup cannot close a window-less process itself and
+  would abort, so wait for it here (up to 90 seconds). }
+function WaitForAppToClose: Boolean;
+var
+  Tries: Integer;
+begin
+  Tries := 0;
+  while AppExeInUse and (Tries < 900) do begin
+    PumpPendingMessages;
+    Sleep(100);
+    Tries := Tries + 1;
+  end;
+  Result := not AppExeInUse;
+  if Tries > 0 then
+    Log(Format('Waited %d ms for Leadroom.exe to close; closed: %d', [Tries * 100, Ord(Result)]));
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then InstallFinished := True;
+end;
+
+{ An update that did not complete must not leave the user without Leadroom: open the
+  version that is still installed, which reports the failure from its pending note. }
+procedure DeinitializeSetup;
+var
+  ResultCode: Integer;
+  Path: String;
+begin
+  if InstallFinished or not RelaunchRequested then Exit;
+  try
+    Path := ExpandConstant('{app}\{#AppExeName}');
+  except
+    Exit;
+  end;
+  if FileExists(Path) then begin
+    Log('The update did not complete; reopening the installed Leadroom.');
+    Exec(Path, '', ExtractFileDir(Path), SW_SHOWNORMAL, ewNoWait, ResultCode);
+  end;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
@@ -536,6 +599,11 @@ begin
     BootstrapProgress.SetText('Removing the earlier version',
       'Your workspace, models and map data are kept');
     RemoveEarlierInstalls;
+    if (WizardSilent or RelaunchRequested) and not WaitForAppToClose then begin
+      Result := 'Leadroom is still running, so it could not be updated.' + #13#10 + #13#10 +
+        'Close Leadroom and run setup again.';
+      Exit;
+    end;
   finally
     BootstrapRunning := False;
     BootstrapCancelButton.Visible := False;

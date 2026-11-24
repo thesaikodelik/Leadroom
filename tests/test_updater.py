@@ -275,3 +275,12 @@ def test_reinstall_keeps_an_existing_map_index() -> None:
     assert "if (Test-ExistingLocalIndex) {" in text
     assert '"Full Local database setup" -CaptureOutput' in text
     assert '"OpenStreetMap import" -CaptureOutput' in text
+
+
+def test_quiet_update_waits_for_the_app_and_reopens_it_if_setup_fails() -> None:
+    definition = (ROOT / "installer" / "Leadroom.iss").read_text(encoding="utf-8")
+    # A quiet Setup cannot close a window-less Leadroom and would abort; it waits instead.
+    assert "(WizardSilent or RelaunchRequested) and not WaitForAppToClose" in definition
+    # An update that does not complete reopens the installed version.
+    assert "procedure DeinitializeSetup;" in definition
+    assert "if InstallFinished or not RelaunchRequested then Exit;" in definition
