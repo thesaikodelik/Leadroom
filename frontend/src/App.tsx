@@ -32,6 +32,7 @@ import {
   Gauge,
   HardDrive,
   ImagePlus,
+  Info,
   KeyRound,
   LayoutList,
   Layers3,
@@ -62,7 +63,7 @@ import {
 } from 'lucide-react'
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from './api'
-import type { Candidate, EmailAccount, EmailAccountInput, EmailAccountsResponse, Lead, OutreachDraft, RepositoryLead, RunCreate, RunDetail, RunSummary, StorageSettingsUpdate, WorkspaceSettingsUpdate } from './types'
+import type { Candidate, EmailAccount, EmailAccountInput, EmailAccountsResponse, Lead, LocalDataStatus, OutreachDraft, UpdateStatus, RepositoryLead, RunCreate, RunDetail, RunSummary, StorageSettingsUpdate, WorkspaceSettingsUpdate } from './types'
 import { applyTheme, isThemeId, type ThemeId } from './theme'
 import './App.css'
 import './Brushstroke.css'
@@ -220,6 +221,7 @@ function Shell() {
           <span className="nav-kicker">Workspace</span>
           {navItems.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to}>{({ isActive }) => <><span className="nav-icon"><Icon /></span><span>{label}</span>{isActive && <motion.span className="nav-active" layoutId="nav-active" transition={{ type: 'spring', stiffness: 420, damping: 34 }} />}</>}</NavLink>)}
         </nav>
+        <UpdateCard />
         <div className="sidebar-meta"><span className="sidebar-meta-icon"><LockKeyhole /></span><span><strong>Private workspace</strong><small>Data stays on this machine</small></span></div>
       </aside>
       <main className="content" inert={mobileNavigation && menuOpen}>
@@ -250,6 +252,100 @@ function Shell() {
       </main>
     </div>
   )
+}
+
+// Shown in the sidebar when a newer Leadroom is out: download it, then restart into it.
+function UpdateCard() {
+  const queryClient = useQueryClient()
+  const [restarting, setRestarting] = useState(false)
+  const status = useQuery({
+    queryKey: ['updates'],
+    queryFn: api.updates,
+    refetchInterval: (query) => (query.state.data?.phase === 'downloading' ? 1000 : 60_000),
+  })
+  const store = (data?: UpdateStatus) => { if (data) queryClient.setQueryData(['updates'], data) }
+  const download = useMutation({ mutationFn: api.updateDownload, onSuccess: store })
+  const postpone = useMutation({ mutationFn: api.updatePostpone, onSuccess: store })
+  const install = useMutation({ mutationFn: api.updateInstall, onMutate: () => setRestarting(true), onSuccess: store, onError: () => setRestarting(false) })
+  const data = status.data
+  if (!data || data.phase === 'idle') return null
+  if (data.postponed && data.phase !== 'downloading' && data.phase !== 'ready') return null
+  const percent = Math.round(data.progress * 100)
+  const openPage = () => { void api.updateOpenPage() }
+  return <div className={`update-card update-${data.phase}`} role="status" aria-live="polite">
+    <span className="update-card-icon">{data.phase === 'failed' ? <AlertTriangle /> : <Download />}</span>
+    <div className="update-card-body">
+      {data.phase === 'available' && <>
+        <strong>Update available</strong>
+        <small>Leadroom {data.version} is ready to download.</small>
+        <div className="update-card-actions">
+          <button className="button primary" onClick={() => download.mutate()} disabled={download.isPending}>Update</button>
+          <button className="button ghost" onClick={() => postpone.mutate()}>Later</button>
+        </div>
+        <button className="update-card-link" onClick={openPage}>What's new</button>
+      </>}
+      {data.phase === 'downloading' && <>
+        <strong>Downloading {data.version}</strong>
+        <small>{percent}% · You can keep working.</small>
+        <div className="update-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} aria-label="Update download"><i style={{ width: `${percent}%` }} /></div>
+      </>}
+      {data.phase === 'ready' && <>
+        <strong>{restarting ? 'Restarting Leadroom' : 'Update ready'}</strong>
+        <small>{restarting ? 'Installing the update; Leadroom opens again when it is done.' : `Restart to finish installing ${data.version}. Running work is stopped.`}</small>
+        {!restarting && <div className="update-card-actions"><button className="button primary" onClick={() => install.mutate()} disabled={install.isPending}>Restart now</button></div>}
+      </>}
+      {data.phase === 'failed' && <>
+        <strong>Update didn't finish</strong>
+        <small>{data.error || 'The update could not be completed.'}</small>
+        <div className="update-card-actions">
+          <button className="button ghost" onClick={openPage}>Release page</button>
+          <button className="button ghost" onClick={() => postpone.mutate()}>Dismiss</button>
+        </div>
+      </>}
+    </div>
+  </div>
+}
+
+// Settings: the running version and a way to look for an update now.
+function AboutSection() {
+  const queryClient = useQueryClient()
+  const status = useQuery({ queryKey: ['updates'], queryFn: api.updates })
+  const check = useMutation({ mutationFn: api.updateCheck, onSuccess: (data) => queryClient.setQueryData(['updates'], data) })
+  const result = check.data?.result
+  const message = check.isPending ? 'Checking for updates...'
+    : check.isError ? 'Could not check for updates.'
+      : result === 'found' ? `Leadroom ${check.data?.version} is available; see the sidebar.`
+        : result === 'up_to_date' ? 'Leadroom is up to date.'
+          : result === 'no_answer' ? 'The update service could not be reached. Try again later.'
+            : status.data && !status.data.enabled ? 'Updates are checked in installed builds.'
+              : 'Leadroom looks for updates every hour while it is open.'
+  return <section className="settings-section about-settings"><header><div><span className="settings-icon"><Info /></span><div><h2>About Leadroom</h2><p>Version {status.data?.current_version ?? '...'}</p></div></div></header>
+    <div className="settings-body about-body"><p role="status" aria-live="polite">{message}</p><button className="button ghost" onClick={() => check.mutate()} disabled={check.isPending}><RefreshCw className={check.isPending ? 'spin' : ''} />Check for updates</button></div>
+  </section>
+}
+
+function syncStateLabel(status?: LocalDataStatus['update_status']) {
+  if (status === 'running') return 'Syncing'
+  if (status === 'failed') return 'Needs attention'
+  if (status === 'not_configured' || !status) return 'Auto-sync off'
+  return 'Auto-sync on'
+}
+
+// The later of the last import and the last incremental update: a re-import resets the data
+// even when an older update timestamp is still recorded.
+function lastSyncLabel(data?: LocalDataStatus) {
+  const times = [data?.last_updated_at, data?.last_imported_at]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => isoTimestamp(value))
+    .map((value) => ({ value, time: new Date(value).getTime() }))
+    .filter((item) => !Number.isNaN(item.time))
+    .sort((a, b) => b.time - a.time)
+  return times.length ? formatDate(times[0].value) : 'Not imported'
+}
+
+// PostgreSQL's text form ("2026-11-24 10:49:39.45+00") is not a date every browser parses.
+function isoTimestamp(value: string) {
+  return value.trim().replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00')
 }
 
 function BrandMark({ logo, name }: { logo: string; name: string }) {
@@ -888,7 +984,7 @@ function LocalDataPage() {
     <div className="engine-metrics"><Metric label="Indexed businesses" value={data?.businesses ?? 0} accent /><Metric label="With a website" value={data?.with_website ?? 0} /><Metric label="With a phone" value={data?.with_phone ?? 0} /><Metric label="With an email" value={data?.with_email ?? 0} /></div>
     <section className="engine-workbench">
       <div className="engine-search"><header><div><span className="eyebrow">Query console</span><h2>Test the local index</h2></div><span className={`engine-state ${data?.ready ? 'online' : ''}`}><i />{data?.ready ? 'Ready' : 'Unavailable'}</span></header><form onSubmit={(event) => { event.preventDefault(); preview.mutate() }}><label>Business niche<input value={niche} onChange={(event) => setNiche(event.target.value)} /></label><label>Location<input value={location} onChange={(event) => setLocation(event.target.value)} /></label><button className="button primary" disabled={!data?.ready || preview.isPending}><ScanSearch />{preview.isPending ? 'Searching...' : 'Run local query'}</button></form>{preview.error && <ErrorPanel error={preview.error} />}{preview.data && <div className="preview-results"><div className="preview-summary"><strong>{preview.data.count} matches</strong><span>{preview.data.elapsed_ms} ms</span></div>{preview.data.results.map((candidate) => <motion.article key={candidate.domain} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}><span className="result-source"><MapPin /></span><div><strong>{candidate.title}</strong><small>{candidate.snippet || candidate.city_or_area}</small></div><div className="result-contact">{candidate.email && <Mail />}{candidate.phone && <Phone />}{candidate.url && <ExternalLink />}</div></motion.article>)}</div>}</div>
-      <aside className="engine-inspector"><header><span><span className="eyebrow">Dataset health</span><h2>Contact coverage</h2></span><span className={`sync-state sync-${data?.update_status ?? 'not_configured'}`}><i />{data?.update_status === 'running' ? 'Syncing' : data?.update_status === 'failed' ? 'Needs attention' : 'Auto-sync on'}</span></header>{coverage.length ? <div className="coverage-list">{coverage.map((item) => { const percent = Math.round(item.value / (data?.businesses || 1) * 100); return <div key={item.label}><span><strong>{item.label}</strong><em>{percent}%</em></span><div><i className={`coverage-${item.tone}`} style={{ width: `${percent}%` }} /></div><small>{item.value.toLocaleString()} records</small></div> })}</div> : <div className="engine-empty"><Database /><strong>No imported records</strong><small>Run the Great Britain import to populate this index.</small></div>}<div className="pipeline-strip"><span><Database /><small>OSM PBF</small></span><ChevronRight /><span><Layers3 /><small>osm2pgsql</small></span><ChevronRight /><span><Server /><small>PostGIS</small></span></div><div className={`sync-note sync-note-${data?.update_status ?? 'not_configured'}`}><RefreshCw className={data?.update_status === 'running' ? 'spin' : ''} /><span><strong>{data?.update_schedule ?? 'Automatic updates'}</strong><small>{data?.update_message ?? 'Checking update service...'}</small></span></div><dl className="engine-facts"><div><dt>Dataset</dt><dd>{data?.dataset ?? 'OpenStreetMap'}</dd></div><div><dt>Last sync</dt><dd>{data?.last_updated_at ? formatDate(data.last_updated_at) : data?.last_imported_at ? formatDate(data.last_imported_at) : 'Not imported'}</dd></div><div><dt>PostGIS</dt><dd>{data?.postgis_version?.split(' ')[0] ?? 'Offline'}</dd></div></dl><a className="osm-attribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a></aside>
+      <aside className="engine-inspector"><header><span><span className="eyebrow">Dataset health</span><h2>Contact coverage</h2></span><span className={`sync-state sync-${data?.update_status ?? 'not_configured'}`}><i />{syncStateLabel(data?.update_status)}</span></header>{coverage.length ? <div className="coverage-list">{coverage.map((item) => { const percent = Math.round(item.value / (data?.businesses || 1) * 100); return <div key={item.label}><span><strong>{item.label}</strong><em>{percent}%</em></span><div><i className={`coverage-${item.tone}`} style={{ width: `${percent}%` }} /></div><small>{item.value.toLocaleString()} records</small></div> })}</div> : <div className="engine-empty"><Database /><strong>No imported records</strong><small>Run the Great Britain import to populate this index.</small></div>}<div className="pipeline-strip"><span><Database /><small>OSM PBF</small></span><ChevronRight /><span><Layers3 /><small>osm2pgsql</small></span><ChevronRight /><span><Server /><small>PostGIS</small></span></div><div className={`sync-note sync-note-${data?.update_status ?? 'not_configured'}`}><RefreshCw className={data?.update_status === 'running' ? 'spin' : ''} /><span><strong>{data?.update_schedule ?? 'Automatic updates'}</strong><small>{data?.update_message ?? 'Checking update service...'}</small></span></div><dl className="engine-facts"><div><dt>Dataset</dt><dd>{data?.dataset ?? 'OpenStreetMap'}</dd></div><div><dt>Last sync</dt><dd>{lastSyncLabel(data)}</dd></div><div><dt>Data as of</dt><dd>{data?.data_timestamp ? formatDate(data.data_timestamp) : 'Unknown'}</dd></div><div><dt>PostGIS</dt><dd>{data?.postgis_version?.split(' ')[0] ?? 'Offline'}</dd></div></dl><a className="osm-attribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a></aside>
     </section>
   </section>
 }
@@ -907,7 +1003,7 @@ function LocalDataSettings() {
       {status.error && <ErrorPanel error={status.error} />}{update.error && <ErrorPanel error={update.error} />}
       <div className="local-index-status"><div><span className="local-index-pulse"><Database /></span><span><strong>{data?.ready ? 'Local index ready' : data?.database === 'online' ? 'Dataset required' : 'Local index offline'}</strong><small>{data?.message ?? 'Checking the local discovery service...'}</small></span></div><div className="local-index-actions"><button className="button ghost" type="button" onClick={() => status.refetch()} disabled={status.isFetching}><RefreshCw className={status.isFetching ? 'spin' : ''} />Refresh</button><button className="button primary" type="button" onClick={() => update.mutate()} disabled={!data?.ready || update.isPending || data?.update_status === 'running'}><RefreshCw className={update.isPending || data?.update_status === 'running' ? 'spin' : ''} />{data?.update_status === 'running' ? 'Syncing' : 'Sync data'}</button></div></div>
       <div className="local-index-metrics"><Metric label="Businesses" value={data?.businesses ?? 0} accent /><Metric label="Websites" value={data?.with_website ?? 0} /><Metric label="Phones" value={data?.with_phone ?? 0} /><Metric label="Emails" value={data?.with_email ?? 0} /></div>
-      <div className="local-index-meta"><span><small>Dataset</small><strong>{data?.dataset ?? 'OpenStreetMap'}</strong></span><span><small>Last sync</small><strong>{data?.last_updated_at ? formatDate(data.last_updated_at) : data?.last_imported_at ? formatDate(data.last_imported_at) : 'Not imported'}</strong></span><span><small>Schedule</small><strong>{data?.update_schedule ?? 'Automatic updates'}</strong></span></div>
+      <div className="local-index-meta"><span><small>Dataset</small><strong>{data?.dataset ?? 'OpenStreetMap'}</strong></span><span><small>Last sync</small><strong>{lastSyncLabel(data)}</strong></span><span><small>Data as of</small><strong>{data?.data_timestamp ? formatDate(data.data_timestamp) : 'Unknown'}</strong></span><span><small>Schedule</small><strong>{data?.update_schedule ?? 'Automatic updates'}</strong></span></div>
       <form className="local-index-query" onSubmit={(event) => { event.preventDefault(); preview.mutate() }}><div><span><ScanSearch /></span><span><strong>Test local search</strong><small>Check what the private index returns before starting a run.</small></span></div><label>Business niche<input value={niche} onChange={(event) => setNiche(event.target.value)} /></label><label>Location<input value={location} onChange={(event) => setLocation(event.target.value)} /></label><button className="button ghost" disabled={!data?.ready || preview.isPending}><Search />{preview.isPending ? 'Searching...' : 'Test query'}</button></form>
       {preview.error && <ErrorPanel error={preview.error} />}{preview.data && <div className="local-preview"><span><strong>{preview.data.count} matches</strong><small>{preview.data.elapsed_ms} ms</small></span><div>{preview.data.results.slice(0, 5).map((candidate) => <span key={candidate.domain}><strong>{candidate.title}</strong><small>{candidate.city_or_area || candidate.domain}</small></span>)}</div></div>}
     </div>
@@ -1251,6 +1347,7 @@ function SettingsPage() {
         <form className="domain-entry" onSubmit={(event) => { event.preventDefault(); addDomain() }}><label><span>Block another domain</span><span className="input-with-icon"><Search /><input value={domainInput} onChange={(event) => setDomainInput(event.target.value)} placeholder="example.com" /></span></label><button className="button ghost" type="submit"><Plus />Add filter</button></form>
         <div className="domain-tags" aria-label="Blocked domains">{form.blocked_domains.map((domain) => <span className="domain-tag domain-tag-custom" key={domain}><code>{domain}</code><button onClick={() => setForm({ ...form, blocked_domains: form.blocked_domains.filter((item) => item !== domain) })} aria-label={`Remove ${domain}`} title="Remove filter"><X /></button></span>)}</div>
       </div></section>
+      <AboutSection />
     </div>
   </section>
 }

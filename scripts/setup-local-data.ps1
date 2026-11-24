@@ -9,8 +9,11 @@ function Assert-NativeSuccess([string]$Operation) {
 Write-Host "Installing PostgreSQL, PostGIS and osm2pgsql in WSL2..."
 wsl -d Ubuntu -u root -- bash -lc "DEBIAN_FRONTEND=noninteractive apt-get update -qq && apt-get install -y postgresql postgresql-contrib postgis postgresql-postgis osm2pgsql"
 Assert-NativeSuccess "Installing Full Local database packages"
-$cluster = @((wsl -d Ubuntu -u root -- pg_lsclusters --no-header | Select-Object -First 1) -split "\s+")
+# Capture all output before taking the first line: piping a native command into
+# Select-Object -First stops it early, and PowerShell then reports exit code -1.
+$clusters = @(wsl -d Ubuntu -u root -- pg_lsclusters --no-header)
 Assert-NativeSuccess "Finding the PostgreSQL cluster"
+$cluster = @(([string]($clusters | Where-Object { $_.Trim() } | Select-Object -First 1)).Trim() -split "\s+")
 if ($cluster.Count -lt 2) { throw "PostgreSQL was installed but no WSL cluster was found." }
 wsl -d Ubuntu -u root -- pg_ctlcluster $cluster[0] $cluster[1] start
 Assert-NativeSuccess "Starting PostgreSQL"

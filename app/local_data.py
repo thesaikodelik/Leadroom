@@ -5,7 +5,9 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.filters import domain_key
@@ -49,6 +51,26 @@ class LocalDataService:
         self.database_url = database_url or os.getenv("OSM_DATABASE_URL", DEFAULT_OSM_DATABASE_URL)
 
     def status(self) -> dict[str, Any]:
+        result = self._status()
+        if LOCAL_DATA_SYNC.running:
+            result["update_status"] = "running"
+            result["update_message"] = "Downloading and applying OpenStreetMap changes."
+        elif result.get("update_status") == "running" and self._use_wsl_bridge:
+            # The update script records "running" when it starts; if WSL was shut down
+            # part-way through, nothing records the end. Trust only a live service.
+            try:
+                still_running = self.update_service_active()
+            except (OSError, subprocess.SubprocessError):
+                still_running = False
+            if not still_running:
+                result["update_status"] = "idle"
+                result["update_message"] = "The last update was interrupted; it will run again."
+        if LOCAL_DATA_SYNC.last_error and result.get("update_status") != "running":
+            result["update_status"] = "failed"
+            result["update_message"] = LOCAL_DATA_SYNC.last_error
+        return result
+
+    def _status(self) -> dict[str, Any]:
         result: dict[str, Any] = {
             "engine": "PostgreSQL + PostGIS",
             "dataset": "OpenStreetMap Great Britain",
@@ -62,7 +84,8 @@ class LocalDataService:
             "last_updated_at": None,
             "update_status": "not_configured",
             "update_message": "Automatic updates are not configured.",
-            "update_schedule": "Daily at 03:30",
+            "update_schedule": "Daily while Leadroom is open",
+            "data_timestamp": None,
             "message": "The local data engine is not connected.",
         }
         if psycopg is None:
@@ -111,6 +134,20 @@ class LocalDataService:
                     """
                 )
                 imported = cursor.fetchone()
+                cursor.execute(
+                    """
+                    SELECT to_regclass('public.osm2pgsql_properties') IS NOT NULL
+                       AND has_table_privilege('public.osm2pgsql_properties', 'SELECT') AS readable
+                    """
+                )
+                if cursor.fetchone()["readable"]:
+                    cursor.execute(
+                        "SELECT property, value FROM osm2pgsql_properties "
+                        "WHERE property IN ('replication_timestamp', 'current_timestamp', 'import_timestamp')"
+                    )
+                    result["data_timestamp"] = _data_timestamp(
+                        {row["property"]: row["value"] for row in cursor.fetchall()}
+                    )
                 result.update(
                     ready=counts["businesses"] > 0,
                     database="online",
@@ -237,7 +274,8 @@ class LocalDataService:
         try:
             engine = self._wsl_json(
                 "SELECT json_build_object('version', PostGIS_Version(), "
-                "'table_ready', to_regclass('public.leadroom_osm_businesses') IS NOT NULL)"
+                "'table_ready', to_regclass('public.leadroom_osm_businesses') IS NOT NULL, "
+                "'properties_ready', to_regclass('public.osm2pgsql_properties') IS NOT NULL)"
             )
             if not engine["table_ready"]:
                 result.update(
@@ -265,6 +303,13 @@ class LocalDataService:
                 "'Automatic updates are not configured.')) "
                 "FROM leadroom_osm_metadata"
             )
+            if engine.get("properties_ready"):
+                properties = self._wsl_json(
+                    "SELECT coalesce(json_object_agg(property, value), '{}'::json) "
+                    "FROM osm2pgsql_properties WHERE property IN "
+                    "('replication_timestamp', 'current_timestamp', 'import_timestamp')"
+                )
+                result["data_timestamp"] = _data_timestamp(properties or {})
             result.update(
                 ready=counts["businesses"] > 0,
                 database="online",
@@ -377,24 +422,15 @@ class LocalDataService:
     def request_update(self) -> dict[str, str]:
         if not self._use_wsl_bridge:
             raise RuntimeError("Manual sync is only available from the Windows local engine")
+        return LOCAL_DATA_SYNC.start()
+
+    def update_service_active(self) -> bool:
+        """Whether the update service is running in WSL now, not just recorded as running."""
         completed = _run_hidden(
-            [
-                "wsl",
-                "-d",
-                "Ubuntu",
-                "-u",
-                "root",
-                "--",
-                "systemctl",
-                "start",
-                "--no-block",
-                "leadroom-osm-update.service",
-            ],
-            timeout=8,
+            ["wsl", "-d", "Ubuntu", "-u", "root", "--", "systemctl", "is-active", UPDATE_SERVICE],
+            timeout=15,
         )
-        if completed.returncode:
-            raise RuntimeError(completed.stderr.strip() or "Could not start the local data update")
-        return {"status": "started", "message": "Local data sync started in the background."}
+        return completed.stdout.strip() in {"active", "activating"}
 
     @staticmethod
     def _candidate(row: dict[str, Any]) -> dict[str, str]:
@@ -464,3 +500,119 @@ def _expand_niche(value: str) -> list[str]:
         if trigger in normalized:
             terms.extend(aliases)
     return list(dict.fromkeys(term for term in terms if term))
+
+
+UPDATE_SERVICE = "leadroom-osm-update.service"
+
+
+def _data_timestamp(properties: dict[str, Any]) -> str | None:
+    """The date the local OpenStreetMap data is current to, from osm2pgsql's own record."""
+    for key in ("replication_timestamp", "current_timestamp", "import_timestamp"):
+        value = str(properties.get(key) or "").strip()
+        if value:
+            return value
+    return None
+
+
+def _parse_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+class LocalDataSync:
+    """Runs the WSL update service from the app and keeps WSL alive while it works.
+
+    WSL shuts its distribution down seconds after the last Windows-side command ends, so a
+    nightly timer inside it fires only on the rare nights WSL happens to be running, and an
+    update started with --no-block can be cut off part-way. Running ``systemctl start`` and
+    waiting for it holds WSL open until the update has finished.
+    """
+
+    # Geofabrik publishes daily diffs, so data a little over a day old is as fresh as it gets.
+    STALE_AFTER = timedelta(hours=30)
+    CHECK_EVERY = timedelta(hours=1)
+    RETRY_AFTER_FAILURE = timedelta(hours=6)
+    UPDATE_TIMEOUT_SECONDS = 6 * 60 * 60
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._worker: threading.Thread | None = None
+        self._auto: threading.Thread | None = None
+        self._stop = threading.Event()
+        self.last_error = ""
+        self.last_attempt: datetime | None = None
+
+    @property
+    def running(self) -> bool:
+        worker = self._worker
+        return bool(worker and worker.is_alive())
+
+    def start(self) -> dict[str, str]:
+        with self._lock:
+            if self.running:
+                return {"status": "running", "message": "Local data sync is already running."}
+            self.last_error = ""
+            self.last_attempt = datetime.now(UTC)
+            self._worker = threading.Thread(target=self._run, name="local-data-sync", daemon=True)
+            self._worker.start()
+        return {"status": "started", "message": "Local data sync started in the background."}
+
+    def _run(self) -> None:
+        try:
+            completed = _run_hidden(
+                ["wsl", "-d", "Ubuntu", "-u", "root", "--", "systemctl", "start", UPDATE_SERVICE],
+                timeout=self.UPDATE_TIMEOUT_SECONDS,
+            )
+            if completed.returncode:
+                self.last_error = (
+                    "The local data update failed. Review: wsl -d Ubuntu -u root -- "
+                    "journalctl -u leadroom-osm-update.service"
+                )
+        except (OSError, subprocess.SubprocessError) as exc:
+            self.last_error = f"The local data update could not run: {exc}"[:240]
+
+    def due(self, status: dict[str, Any], now: datetime | None = None) -> bool:
+        """Whether an automatic update should start now, given a LocalDataService status."""
+        now = now or datetime.now(UTC)
+        if not status.get("ready") or status.get("update_status") in {"running", "not_configured"}:
+            return False
+        if self.running:
+            return False
+        if self.last_attempt and now - self.last_attempt < (
+            self.RETRY_AFTER_FAILURE if self.last_error else self.CHECK_EVERY
+        ):
+            return False
+        current_to = _parse_timestamp(status.get("data_timestamp"))
+        return current_to is None or now - current_to > self.STALE_AFTER
+
+    def start_automatic(self, first_delay: float = 90) -> None:
+        """Check a little after start-up and then hourly; only on the Windows WSL engine."""
+        if sys.platform != "win32" or "OSM_DATABASE_URL" in os.environ:
+            return
+        if self._auto and self._auto.is_alive():
+            return
+
+        def loop() -> None:
+            delay = first_delay
+            while not self._stop.wait(delay):
+                delay = self.CHECK_EVERY.total_seconds()
+                try:
+                    service = LocalDataService()
+                    if self.due(service.status()):
+                        service.request_update()
+                except Exception:  # noqa: BLE001 - a background check must never stop the app
+                    continue
+
+        self._auto = threading.Thread(target=loop, name="local-data-auto-sync", daemon=True)
+        self._auto.start()
+
+    def stop_automatic(self) -> None:
+        self._stop.set()
+
+
+LOCAL_DATA_SYNC = LocalDataSync()

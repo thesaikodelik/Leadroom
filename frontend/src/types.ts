@@ -67,12 +67,29 @@ export interface LocalDataStatus {
   with_email: number
   last_imported_at: string | null
   last_updated_at?: string | null
+  data_timestamp?: string | null
   update_status?: 'idle' | 'running' | 'failed' | 'not_configured'
   update_message?: string
   update_schedule?: string
   message: string
   postgis_version?: string
   latency_ms?: number
+}
+
+export type UpdatePhase = 'idle' | 'available' | 'downloading' | 'ready' | 'failed'
+
+export interface UpdateStatus {
+  current_version: string
+  phase: UpdatePhase
+  version: string | null
+  page: string
+  notes: string
+  progress: number
+  error: string
+  postponed: boolean
+  installed: boolean
+  enabled: boolean
+  result?: 'found' | 'up_to_date' | 'no_answer' | 'skipped'
 }
 
 export interface LocalDataPreview {

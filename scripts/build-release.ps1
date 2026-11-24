@@ -1,6 +1,11 @@
 param(
-    [string]$Version = "0.1.0",
-    [switch]$SkipAppBuild
+    # Defaults to the version in pyproject.toml.
+    [string]$Version = "",
+    [switch]$SkipAppBuild,
+    # A release must carry the update signature, or installed copies cannot update to it.
+    [switch]$RequireSignature,
+    # Test builds only: sign with a throwaway key file and build its public key in.
+    [string]$UpdateKeyFile = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -9,9 +14,26 @@ $dist = Join-Path $root "dist"
 $build = Join-Path $root "build"
 $portableStage = Join-Path $build "Leadroom-Portable"
 $portableArchive = Join-Path $dist "Leadroom-Portable.zip"
+$python = Join-Path $root ".venv\Scripts\python.exe"
+$signer = Join-Path $PSScriptRoot "sign_update.py"
+
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    $match = Select-String -Path (Join-Path $root "pyproject.toml") -Pattern '^version = "([^"]+)"'
+    if (-not $match) { throw "No version found in pyproject.toml." }
+    $Version = $match.Matches[0].Groups[1].Value
+}
+Write-Host "Building Leadroom $Version"
+
+$updatePublicKey = ""
+$signerKeyArguments = @()
+if ($UpdateKeyFile) {
+    $signerKeyArguments = @("--key-file", $UpdateKeyFile)
+    $updatePublicKey = (& $python $signer @signerKeyArguments public).Trim()
+    if ($LASTEXITCODE -ne 0) { throw "Could not read the test update key." }
+}
 
 if (-not $SkipAppBuild) {
-    & (Join-Path $PSScriptRoot "package.ps1")
+    & (Join-Path $PSScriptRoot "package.ps1") -Version $Version -UpdatePublicKey $updatePublicKey
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 if (-not (Test-Path (Join-Path $dist "Leadroom.exe"))) {
@@ -52,8 +74,21 @@ if (-not $iscc) {
 & $iscc "/DAppVersion=$Version" (Join-Path $root "installer\Leadroom.iss")
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+$setup = Join-Path $dist "Leadroom-Setup.exe"
+$signature = "$setup.sig"
+if (Test-Path -LiteralPath $signature) { Remove-Item -LiteralPath $signature -Force }
+$releaseKey = Join-Path $env:USERPROFILE ".leadroom\update-signing.key"
+if ($UpdateKeyFile -or (Test-Path -LiteralPath $releaseKey)) {
+    & $python $signer @signerKeyArguments sign $setup
+    if ($LASTEXITCODE -ne 0) { throw "Could not sign the installer for the in-app updater." }
+} elseif ($RequireSignature) {
+    throw "No update signing key on this computer; installed copies could not update to this build."
+} else {
+    Write-Warning "No update signing key: Leadroom-Setup.exe is not signed for the in-app updater."
+}
+
 $artifacts = @(
-    (Join-Path $dist "Leadroom-Setup.exe"),
+    $setup,
     $portableArchive
 )
 $checksumLines = foreach ($artifact in $artifacts) {
@@ -64,5 +99,7 @@ $checksumLines = foreach ($artifact in $artifacts) {
 $checksumLines | Set-Content -LiteralPath (Join-Path $dist "checksums.txt") -Encoding ASCII
 
 Write-Host "Release artifacts are ready:"
-Get-Item -LiteralPath ($artifacts + (Join-Path $dist "checksums.txt")) |
+$listed = $artifacts + (Join-Path $dist "checksums.txt")
+if (Test-Path -LiteralPath $signature) { $listed += $signature }
+Get-Item -LiteralPath $listed |
     Select-Object Name, Length, LastWriteTime

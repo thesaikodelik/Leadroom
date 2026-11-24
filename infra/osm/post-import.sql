@@ -28,3 +28,4 @@ ANALYZE leadroom_osm_places;
 GRANT SELECT ON leadroom_osm_businesses TO leadroom;
 GRANT SELECT ON leadroom_osm_places TO leadroom;
 GRANT SELECT ON leadroom_osm_metadata TO leadroom;
+GRANT SELECT ON osm2pgsql_properties TO leadroom;

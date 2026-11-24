@@ -1145,3 +1145,25 @@ input:focus, select:focus, textarea:focus { border-color: var(--green); box-shad
   .repository-empty-icon { width: 44px; height: 44px; }
   .repository-empty-action { grid-column: 1 / -1; width: 100%; justify-self: stretch; }
 }
+
+/* In-app update card, above the sidebar footer. Colours follow the sidebar of each theme. */
+.update-card { margin-top: auto; margin-bottom: 12px; padding: 12px; display: flex; gap: 10px; align-items: flex-start; border: 1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius: 8px; background: color-mix(in srgb, currentColor 6%, transparent); font-size: var(--type-caption); }
+.update-card + .sidebar-meta { margin-top: 0; }
+.update-card-icon { width: 28px; height: 28px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 6px; background: color-mix(in srgb, currentColor 10%, transparent); }
+.update-card-icon svg { width: 15px; }
+.update-failed .update-card-icon { color: #f59e0b; }
+.update-card-body { min-width: 0; display: grid; gap: 4px; }
+.update-card-body strong { font-size: var(--type-caption); }
+.update-card-body small { opacity: .78; line-height: 1.5; overflow-wrap: anywhere; }
+.update-card-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.update-card-actions .button { min-height: 32px; padding: 0 12px; font-size: var(--type-caption); }
+.update-card-link { justify-self: start; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; text-underline-offset: 2px; opacity: .78; cursor: pointer; }
+.update-card-link:hover { opacity: 1; }
+.update-progress { height: 4px; margin-top: 6px; border-radius: 2px; background: color-mix(in srgb, currentColor 16%, transparent); overflow: hidden; }
+.update-progress i { display: block; height: 100%; border-radius: inherit; background: currentColor; transition: width .4s ease; }
+@media (prefers-reduced-motion: reduce) { .update-progress i { transition: none; } }
+.about-body { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.about-body p { margin: 0; }
+/* Ghost buttons are drawn for light pages; on the sidebar they take its own text colour. */
+.update-card .button.ghost { color: inherit; border-color: color-mix(in srgb, currentColor 35%, transparent); background: transparent; }
+.update-card .button.ghost:hover { background: color-mix(in srgb, currentColor 10%, transparent); }

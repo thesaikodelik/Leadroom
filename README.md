@@ -171,6 +171,8 @@ fresh Windows machines, both with and without Windows Package Manager.
 > New, unsigned programs may get *"Windows protected your PC"*: choose **More info → Run anyway**.
 > Leadroom is open source; read every line, or build it yourself.
 
+**Updates come to you.** Leadroom checks for a new version while it is open and offers it in the sidebar; one click downloads it, and **Restart now** installs it and opens the new version. Every update is checked against the project's signature before it runs. Running a newer Setup over an older Leadroom also works, and keeps your workspace, models and map data.
+
 Uninstall from **Settings → Apps**. Setup asks whether to keep your workspace and downloaded models.
 
 **Requirements:** Windows 10 or 11 (64-bit), about 10 GB free for Ollama and the default model, and
@@ -185,6 +187,7 @@ and the map index).
 - Model keys, SMTP passwords and account secrets are encrypted with your Windows account (DPAPI).
 - No accounts and no tracking. The default AI model runs on your PC, and Leadroom switches off the
   usage reporting built into ScrapeGraphAI, so page content is never uploaded for analytics.
+- To look for updates, Leadroom reads this repository's public release list on GitHub about once an hour. The optional map index downloads OpenStreetMap changes from Geofabrik. Neither request carries your data.
 - The screenshots in this README use made-up `.example` businesses, not real data.
 
 Found a security problem? Please report it privately, as described in [SECURITY.md](SECURITY.md).
@@ -239,7 +242,7 @@ npm run dev --prefix frontend
 Install [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install JRSoftware.InnoSetup`), then:
 
 ```powershell
-.\scripts\build-release.ps1 -Version 0.1.2
+.\scripts\build-release.ps1
 ```
 
 This writes `Leadroom-Setup.exe`, `Leadroom-Portable.zip` and `checksums.txt` to `dist\`.

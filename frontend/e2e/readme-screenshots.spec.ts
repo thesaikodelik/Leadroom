@@ -52,6 +52,7 @@ test('capture privacy-safe README screenshots', async ({ page }, testInfo) => {
     const pathname = url.pathname
 
     if (pathname === '/api/v1/health') return route.fulfill({ json: { status: 'ok', database: 'ok' } })
+    if (pathname === '/api/v1/updates') return route.fulfill({ json: { current_version: '0.1.3', phase: 'idle', version: null, page: '', notes: '', progress: 0, error: '', postponed: false, installed: true, enabled: true } })
     if (pathname === '/api/v1/settings') return route.fulfill({ json: settings })
     if (pathname === '/api/v1/settings/email-accounts') return route.fulfill({ json: { accounts: settings.email_accounts, default_account_id: 'demo-sender' } })
     if (pathname === '/api/v1/settings/storage') return route.fulfill({ json: { data_root: 'D:\\LeadroomData', downloads_root: 'D:\\LeadroomModels', active_data_root: 'D:\\LeadroomData', database_path: 'D:\\LeadroomData\\lead_scraper.db', database_exists: true, database_bytes: 18400000, workspace_bytes: 76000000, cache_dir: 'D:\\LeadroomModels\\cache', browser_dir: 'D:\\LeadroomModels\\playwright', ollama_dir: 'D:\\LeadroomModels\\ollama', data_disk: { free_bytes: 380000000000, total_bytes: 1000000000000 }, downloads_disk: { free_bytes: 720000000000, total_bytes: 2000000000000 }, restart_required: false, ollama_restart_required: false } })

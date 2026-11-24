@@ -27,7 +27,11 @@ export const runDetail = {
   }],
 }
 
+// No update is waiting unless a test says otherwise.
+export const idleUpdates = { current_version: '0.1.3', phase: 'idle', version: null, page: '', notes: '', progress: 0, error: '', postponed: false, installed: true, enabled: true }
+
 export async function mockShell(page: Page) {
+  await page.route('**/api/v1/updates', (route) => route.fulfill({ json: idleUpdates }))
   await page.route('**/api/v1/health', (route) => route.fulfill({ json: { status: 'ok', database: 'ok' } }))
   await page.route('**/api/v1/settings/email-accounts', (route) => route.fulfill({ json: { accounts: [], default_account_id: '' } }))
   await page.route('**/api/v1/settings', (route) => route.fulfill({ json: {

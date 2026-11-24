@@ -49,3 +49,6 @@ frontend/blob-report/
 
 # Local editor/agent tool caches
 .impeccable/
+
+# Written by scripts/package.ps1 for each build
+app/_build_info.py

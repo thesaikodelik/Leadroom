@@ -32,6 +32,13 @@ function Convert-ToWslPath([string]$Path) {
 }
 
 $wslPbf = Convert-ToWslPath $pbf
+# A snapshot left from an earlier import would roll the index back to that date, and the
+# replication catch-up afterwards would have weeks of changes to apply. Start from a
+# fresh one once it is more than a week old.
+if ((Test-Path -LiteralPath $pbf) -and ((Get-Item -LiteralPath $pbf).LastWriteTime -lt (Get-Date).AddDays(-7))) {
+    Write-Host "The existing snapshot is more than a week old; downloading a fresh one."
+    $Refresh = $true
+}
 if ($Refresh -and (Test-Path -LiteralPath $pbf)) {
     $download = "$pbf.download"
     $wslDownload = Convert-ToWslPath $download
@@ -50,11 +57,18 @@ if ($Refresh -and (Test-Path -LiteralPath $pbf)) {
 $wslLua = Convert-ToWslPath (Join-Path $ResourceDirectory "leadroom.lua")
 $wslSql = Convert-ToWslPath (Join-Path $ResourceDirectory "post-import.sql")
 
-$cluster = @((wsl -d Ubuntu -u root -- pg_lsclusters --no-header | Select-Object -First 1) -split "\s+")
+# Capture all output before taking the first line: piping a native command into
+# Select-Object -First stops it early, and PowerShell then reports exit code -1.
+$clusters = @(wsl -d Ubuntu -u root -- pg_lsclusters --no-header)
 Assert-NativeSuccess "Finding the PostgreSQL cluster"
+$cluster = @(([string]($clusters | Where-Object { $_.Trim() } | Select-Object -First 1)).Trim() -split "\s+")
 if ($cluster.Count -lt 2) { throw "No PostgreSQL cluster was found in WSL." }
 wsl -d Ubuntu -u root -- pg_ctlcluster $cluster[0] $cluster[1] start
 Assert-NativeSuccess "Starting PostgreSQL"
+# An update that starts while the tables are being recreated fails and leaves a
+# misleading status; hold the nightly updates until the import has finished.
+# (setup-local-updates.ps1 enables the timer again at the end.)
+wsl -d Ubuntu -u root -- bash -c "systemctl stop leadroom-osm-update.timer leadroom-osm-update.service 2>/dev/null || true"
 wsl -d Ubuntu -u root -- mkdir -p /opt/leadroom
 Assert-NativeSuccess "Preparing Leadroom resources in WSL"
 wsl -d Ubuntu -u root -- install -m 0644 $wslLua /opt/leadroom/leadroom.lua

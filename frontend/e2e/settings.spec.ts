@@ -20,6 +20,7 @@ async function mockSettings(page: Page) {
     data_disk: { free_bytes: 150_000_000_000, total_bytes: 500_000_000_000 }, downloads_disk: { free_bytes: 700_000_000_000, total_bytes: 1_000_000_000_000 }, restart_required: false, ollama_restart_required: false,
   }
   await page.route('**/api/v1/health', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ status: 'ok', database: 'ok' }) }))
+  await page.route('**/api/v1/updates', (route) => route.fulfill({ json: { current_version: '0.1.3', phase: 'idle', version: null, page: '', notes: '', progress: 0, error: '', postponed: false, installed: true, enabled: true } }))
   await page.route('**/api/v1/local-data/status', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ready: true, database: 'online', message: 'Local discovery is ready.', businesses: 1200, with_website: 800, with_phone: 900, with_email: 240, dataset: 'OpenStreetMap Great Britain', update_status: 'idle', update_schedule: 'Daily at 03:30' }) }))
   await page.route('**/api/v1/settings/storage/browse', (route) => route.fulfill({ json: { path: 'D:\\Leadroom' } }))
   await page.route('**/api/v1/settings/storage', async (route) => {

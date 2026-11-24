@@ -51,6 +51,7 @@ from app.storage import (
     save_storage_config,
     schedule_storage_change,
 )
+from app.updater import Updater, current_version
 
 DEFAULT_WORKSPACE_NAME = "Leadroom"
 DEFAULT_WORKSPACE_SUBTITLE = "Signal desk"
@@ -614,6 +615,13 @@ def _email_account_ready(account: dict[str, Any]) -> bool:
     return True
 
 
+def _exit_soon() -> None:
+    """Ends a window-less API process a moment after the current answer has been sent."""
+    timer = threading.Timer(1.0, lambda: os._exit(0))
+    timer.daemon = True
+    timer.start()
+
+
 def create_app(database_path: Path | None = None, frontend_dir: Path | None = None) -> FastAPI:
     database_path = database_path or Path(os.getenv("LEAD_SCRAPER_DATABASE", "data/lead_scraper.db"))
     app = FastAPI(title="Local Lead Scraper API", version="1.0.0")
@@ -679,6 +687,15 @@ def create_app(database_path: Path | None = None, frontend_dir: Path | None = No
     app.state.shutting_down = threading.Event()
     app.state.discovery_jobs: dict[str, str] = {}
     app.state.enrichment_jobs: dict[str, str] = {}
+    app.state.updater = None
+    # The desktop shell replaces this with one that closes its window; on its own the
+    # API process simply ends shortly after answering.
+    app.state.quit_app = _exit_soon
+
+    def updater() -> Updater:
+        if app.state.updater is None:
+            app.state.updater = Updater(app.state.bootstrap_root)
+        return app.state.updater
 
     @app.on_event("shutdown")
     def shutdown_workers() -> None:
@@ -949,7 +966,34 @@ def create_app(database_path: Path | None = None, frontend_dir: Path | None = No
             repo.engine.dispose()
         if integrity != "ok":
             raise HTTPException(status_code=503, detail="Database integrity check failed")
-        return {"status": "ok", "database": integrity}
+        return {"status": "ok", "database": integrity, "version": current_version()}
+
+    @app.get("/api/v1/updates")
+    def update_status() -> dict[str, Any]:
+        return updater().snapshot()
+
+    @app.post("/api/v1/updates/check")
+    def update_check() -> dict[str, Any]:
+        result = updater().check(asked=True)
+        return {**updater().snapshot(), "result": result or "skipped"}
+
+    @app.post("/api/v1/updates/download", status_code=202)
+    def update_download() -> dict[str, Any]:
+        return updater().download()
+
+    @app.post("/api/v1/updates/install", status_code=202)
+    def update_install() -> dict[str, Any]:
+        return updater().install(app.state.quit_app)
+
+    @app.post("/api/v1/updates/postpone")
+    def update_postpone() -> dict[str, Any]:
+        updater().postpone()
+        return updater().snapshot()
+
+    @app.post("/api/v1/updates/open-page", status_code=204)
+    def update_open_page() -> Response:
+        updater().open_page()
+        return Response(status_code=204)
 
     @app.get("/api/v1/runs")
     def list_runs(limit: int = Query(default=100, ge=1, le=500)) -> list[dict[str, Any]]:

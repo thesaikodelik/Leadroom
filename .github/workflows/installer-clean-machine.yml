@@ -2,13 +2,21 @@ name: Installer clean-machine test
 
 # Builds Leadroom-Setup.exe and installs it on fresh Windows runners that do not
 # have Ollama, once with Windows Package Manager and once with it hidden so the
-# direct-download fallback is exercised.
+# direct-download fallback is exercised. Each run also checks that:
+# - an earlier Leadroom registered under another AppId is removed by the new Setup;
+# - the installed app finds a newer signed release, downloads and checks it, runs
+#   Setup quietly, and opens again as the new version (the in-app updater).
+# Both builds are signed with a throwaway key made for the run; the release key
+# never leaves the maintainer's computer.
 
 on:
   workflow_dispatch:
 
 permissions:
   contents: read
+
+env:
+  NEXT_VERSION: "0.1.99"
 
 jobs:
   build:
@@ -41,14 +49,61 @@ jobs:
           ) | Where-Object { Test-Path $_ } | Select-Object -First 1
           if (-not $iscc) { choco install innosetup -y --no-progress }
 
+      - name: Make a throwaway update signing key
+        shell: pwsh
+        run: .\.venv\Scripts\python.exe scripts\sign_update.py --key-file "$env:RUNNER_TEMP\test-update.key" keygen
+
+      - name: Build the newer release the installed app will find
+        shell: pwsh
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\build-release.ps1 -Version $env:NEXT_VERSION -UpdateKeyFile "$env:RUNNER_TEMP\test-update.key"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force next | Out-Null
+          Copy-Item dist\Leadroom-Setup.exe, dist\Leadroom-Setup.exe.sig next\
+
       - name: Build installer
         shell: pwsh
-        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\build-release.ps1 -Version 0.1.2
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\build-release.ps1 -UpdateKeyFile "$env:RUNNER_TEMP\test-update.key"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build a stand-in for an earlier Leadroom under another AppId
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force earlier | Out-Null
+          Set-Content earlier\earlier-version.txt "left by the earlier install"
+          @'
+          [Setup]
+          AppId={{6E0B7C2A-0000-4000-8000-00000000E001}
+          AppName=Leadroom
+          AppVersion=0.0.9
+          DefaultDirName={localappdata}\Programs\Leadroom
+          PrivilegesRequired=lowest
+          OutputDir=.
+          OutputBaseFilename=Leadroom-Earlier-Setup
+          DisableDirPage=no
+          [Files]
+          Source: "earlier-version.txt"; DestDir: "{app}"
+          '@ -replace '(?m)^\s+', '' | Set-Content earlier\earlier.iss
+          $iscc = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          & $iscc /Q earlier\earlier.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - uses: actions/upload-artifact@v4
         with:
           name: leadroom-setup
-          path: dist/Leadroom-Setup.exe
+          path: |
+            dist/Leadroom-Setup.exe
+            earlier/Leadroom-Earlier-Setup.exe
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: leadroom-next
+          path: next/
           retention-days: 3
 
   clean-install:
@@ -63,13 +118,18 @@ jobs:
           - name: without-winget
             disable_winget: "1"
     name: clean-install (${{ matrix.name }})
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       LEADROOM_SETUP_DISABLE_WINGET: ${{ matrix.disable_winget }}
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: leadroom-setup
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: leadroom-next
+          path: next
 
       - name: Confirm the runner has no Ollama
         shell: pwsh
@@ -83,6 +143,16 @@ jobs:
           "winget on runner: " + ((Get-Command winget.exe -ErrorAction SilentlyContinue).Source ?? "none")
           "winget hidden for this run: $env:LEADROOM_SETUP_DISABLE_WINGET"
 
+      - name: Install the stand-in earlier version
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "leadroom"
+          $earlier = Start-Process -FilePath .\earlier\Leadroom-Earlier-Setup.exe -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/DIR=$root\app") -PassThru -Wait
+          if ($earlier.ExitCode -ne 0) { throw "The stand-in earlier version did not install." }
+          $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{6E0B7C2A-0000-4000-8000-00000000E001}_is1"
+          if (-not (Test-Path $key)) { throw "The stand-in earlier version is not registered." }
+          "Earlier version registered: $((Get-ItemProperty $key).DisplayName)"
+
       - name: Run Setup with every default component
         shell: pwsh
         run: |
@@ -93,7 +163,7 @@ jobs:
             "/INSTALL_WEBVIEW=1", "/INSTALL_OLLAMA=1", "/DOWNLOAD_MODEL=1",
             "/LOG=$root-setup.log"
           )
-          $setup = Start-Process -FilePath .\Leadroom-Setup.exe -ArgumentList $arguments -PassThru
+          $setup = Start-Process -FilePath .\dist\Leadroom-Setup.exe -ArgumentList $arguments -PassThru
           $log = "$env:LOCALAPPDATA\Leadroom\logs\install.log"
           $deadline = (Get-Date).AddMinutes(25)
           $shown = 0
@@ -117,6 +187,19 @@ jobs:
           if (Test-Path $log) { Get-Content $log | Select-Object -Skip $shown }
           "Setup exit code: $($setup.ExitCode)"
           if ($setup.ExitCode -ne 0) { throw "Setup failed with exit code $($setup.ExitCode)." }
+
+      - name: Verify the earlier version was replaced
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "leadroom"
+          $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{6E0B7C2A-0000-4000-8000-00000000E001}_is1"
+          if (Test-Path $key) { throw "The earlier version is still registered after Setup." }
+          if (Test-Path "$root\app\earlier-version.txt") { throw "The earlier version's files are still installed." }
+          $entries = @(Get-ChildItem HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall |
+            ForEach-Object { Get-ItemProperty $_.PSPath } | Where-Object { $_.DisplayName -like "Leadroom*" })
+          "Leadroom entries in Apps: $($entries.DisplayName -join '; ')"
+          if ($entries.Count -ne 1) { throw "Expected one Leadroom entry in Apps, found $($entries.Count)." }
+          Select-String -Path "$root-setup.log" -Pattern "earlier Leadroom" | ForEach-Object { $_.Line }
 
       - name: Verify Leadroom, Ollama, and the model
         shell: pwsh
@@ -164,6 +247,71 @@ jobs:
           Get-Content "$env:LOCALAPPDATA\Leadroom\logs\leadroom.log" -Tail 40 -ErrorAction SilentlyContinue
           if (-not $health -or $health.status -ne "ok") { throw "Installed application health check failed." }
           "Health: $($health | ConvertTo-Json -Compress)"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Update the running app from a test release feed
+        shell: pwsh
+        run: |
+          $home_ = "$env:LOCALAPPDATA\Leadroom"
+          $current = (Invoke-RestMethod http://127.0.0.1:8877/api/v1/health).version
+          "Installed version: $current; offering $env:NEXT_VERSION"
+          # A release list in the GitHub API's shape, served next to the newer signed Setup.
+          $release = @{
+            tag_name = "v$env:NEXT_VERSION"; html_url = "http://127.0.0.1:8899/"; draft = $false; prerelease = $false; body = "Test release"
+            assets = @(
+              @{ name = "Leadroom-Setup.exe"; browser_download_url = "http://127.0.0.1:8899/Leadroom-Setup.exe"; size = (Get-Item next\Leadroom-Setup.exe).Length },
+              @{ name = "Leadroom-Setup.exe.sig"; browser_download_url = "http://127.0.0.1:8899/Leadroom-Setup.exe.sig"; size = 0 }
+            )
+          }
+          ConvertTo-Json @($release) -Depth 5 | Set-Content next\releases.json -Encoding utf8
+          $server = Start-Process python -ArgumentList @("-m", "http.server", "8899", "--bind", "127.0.0.1", "--directory", (Resolve-Path next).Path) -PassThru -WindowStyle Hidden
+          Set-Content "$home_\update-feed.txt" "http://127.0.0.1:8899/releases.json"
+          $token = (Get-Content "$home_\leadroom.instance.json" | ConvertFrom-Json).token
+          $headers = @{ Cookie = "leadroom_session=$token" }
+          $api = "http://127.0.0.1:8877/api/v1"
+
+          $found = Invoke-RestMethod -Method Post "$api/updates/check" -Headers $headers
+          "Check: $($found | ConvertTo-Json -Compress)"
+          if ($found.phase -ne "available" -or $found.version -ne $env:NEXT_VERSION) { throw "The app did not find the newer release." }
+          if (-not $found.installed) { throw "The app does not know it was installed by Setup." }
+
+          Invoke-RestMethod -Method Post "$api/updates/download" -Headers $headers | Out-Null
+          $deadline = (Get-Date).AddMinutes(5)
+          do {
+            Start-Sleep -Seconds 2
+            $state = Invoke-RestMethod "$api/updates" -Headers $headers
+          } while ($state.phase -eq "downloading" -and (Get-Date) -lt $deadline)
+          "Download: $($state | ConvertTo-Json -Compress)"
+          if ($state.phase -ne "ready") { throw "The update was not downloaded and verified: $($state.error)" }
+
+          $old = Get-Process Leadroom -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id
+          Invoke-RestMethod -Method Post "$api/updates/install" -Headers $headers | Out-Null
+          $deadline = (Get-Date).AddMinutes(10)
+          $health = $null
+          while ((Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 3
+            try {
+              $health = Invoke-RestMethod http://127.0.0.1:8877/api/v1/health -TimeoutSec 3
+              if ($health.version -eq $env:NEXT_VERSION) { break }
+            } catch {}
+          }
+          Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+          "--- update.log"; Get-Content "$home_\logs\update.log" -ErrorAction SilentlyContinue
+          "--- update-installer.log (tail)"; Get-Content "$home_\logs\update-installer.log" -Tail 30 -ErrorAction SilentlyContinue
+          if (-not $health -or $health.version -ne $env:NEXT_VERSION) { throw "The app did not come back as $env:NEXT_VERSION after the update." }
+          "Running after the update: $($health | ConvertTo-Json -Compress)"
+          $still = Get-Process -Id $old -ErrorAction SilentlyContinue
+          if ($still) { throw "The old app process is still running." }
+          $entry = Get-ChildItem HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall |
+            ForEach-Object { Get-ItemProperty $_.PSPath } | Where-Object { $_.DisplayName -like "Leadroom*" }
+          "Apps entry: $($entry.DisplayName) $($entry.DisplayVersion)"
+          if (@($entry).Count -ne 1 -or $entry.DisplayVersion -ne $env:NEXT_VERSION) { throw "Apps does not list exactly one Leadroom $env:NEXT_VERSION." }
+          Start-Sleep -Seconds 3
+          if (Test-Path "$home_\update-pending.json") { throw "The new version did not clear the pending-update note." }
+          Select-String -Path "$home_\logs\update.log" -Pattern "arrived" | ForEach-Object { $_.Line }
 
       - name: Collect logs
         if: always()

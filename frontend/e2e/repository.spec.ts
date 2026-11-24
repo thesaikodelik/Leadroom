@@ -19,6 +19,7 @@ const leads = [
 
 async function mockHealth(page: Page) {
   await page.route('**/api/v1/health', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ status: 'ok', database: 'ok' }) }))
+  await page.route('**/api/v1/updates', (route) => route.fulfill({ json: { current_version: '0.1.3', phase: 'idle', version: null, page: '', notes: '', progress: 0, error: '', postponed: false, installed: true, enabled: true } }))
 }
 
 test('candidate selection responds immediately and centers its check icon', async ({ page }) => {

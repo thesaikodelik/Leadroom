@@ -1,4 +1,4 @@
-import type { EmailAccountInput, EmailAccountsResponse, Lead, LocalDataPreview, LocalDataStatus, MarketHistory, ModelBenchmark, OllamaCatalogResponse, OllamaModelsResponse, OllamaPullJob, OutreachDraft, OutreachPreflight, OutreachSendJob, Problem, RepositoryLead, RepositoryResponse, RunCreate, RunDetail, RunSummary, StorageSettings, StorageSettingsUpdate, Suppression, WorkspaceSettings, WorkspaceSettingsUpdate } from './types'
+import type { EmailAccountInput, EmailAccountsResponse, Lead, LocalDataPreview, LocalDataStatus, UpdateStatus, MarketHistory, ModelBenchmark, OllamaCatalogResponse, OllamaModelsResponse, OllamaPullJob, OutreachDraft, OutreachPreflight, OutreachSendJob, Problem, RepositoryLead, RepositoryResponse, RunCreate, RunDetail, RunSummary, StorageSettings, StorageSettingsUpdate, Suppression, WorkspaceSettings, WorkspaceSettingsUpdate } from './types'
 
 export const API_BASE = import.meta.env.VITE_API_URL ?? '/api/v1'
 
@@ -30,7 +30,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  health: () => request<{ status: string; database: string }>('/health'),
+  health: () => request<{ status: string; database: string; version?: string }>('/health'),
+  updates: () => request<UpdateStatus>('/updates'),
+  updateCheck: () => request<UpdateStatus>('/updates/check', { method: 'POST' }),
+  updateDownload: () => request<UpdateStatus>('/updates/download', { method: 'POST' }),
+  updateInstall: () => request<UpdateStatus>('/updates/install', { method: 'POST' }),
+  updatePostpone: () => request<UpdateStatus>('/updates/postpone', { method: 'POST' }),
+  updateOpenPage: () => fetch(`${API_BASE}/updates/open-page`, { method: 'POST' }).then(() => undefined),
   listRuns: () => request<RunSummary[]>('/runs'),
   getRun: (runId: string) => request<RunDetail>(`/runs/${runId}`),
   createRun: (payload: RunCreate, signal?: AbortSignal) =>

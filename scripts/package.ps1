@@ -1,5 +1,21 @@
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$Version,
+    # Only for test builds: an update key other than the release key in app/updater.py.
+    [string]$UpdatePublicKey = ""
+)
+
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
+
+# The version the in-app updater compares against, built into Leadroom.exe.
+$buildInfo = Join-Path $root "app\_build_info.py"
+$lines = @(
+    "# Written by scripts/package.ps1 for each build; not kept in the repository.",
+    "VERSION = `"$Version`"",
+    "UPDATE_PUBLIC_KEY = `"$UpdatePublicKey`""
+)
+[IO.File]::WriteAllLines($buildInfo, $lines, [Text.UTF8Encoding]::new($false))
 
 Push-Location (Join-Path $root "frontend")
 try { & npm run build } finally { Pop-Location }
@@ -14,6 +30,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     --icon "assets/leadroom-icon.ico" `
     --add-data "frontend/dist;frontend/dist" `
     --add-data "assets/leadroom-icon.ico;assets" `
+    --hidden-import app._build_info `
     --collect-data tldextract `
     --collect-data undetected_playwright `
     --collect-all tiktoken `

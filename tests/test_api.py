@@ -52,9 +52,19 @@ class ApiTests(unittest.TestCase):
         self.fail(f"Run {run_id} did not reach {statuses}")
 
     def test_health_and_openapi(self):
-        self.assertEqual(self.client.get("/api/v1/health").json(), {"status": "ok", "database": "ok"})
+        health = self.client.get("/api/v1/health").json()
+        self.assertEqual({key: health[key] for key in ("status", "database")}, {"status": "ok", "database": "ok"})
+        # The version lets the clean-machine test confirm which build is running after an update.
+        self.assertTrue(health["version"])
         schema = self.client.get("/openapi.json").json()
         self.assertIn("/api/v1/runs", schema["paths"])
+        self.assertIn("/api/v1/updates", schema["paths"])
+
+    def test_update_status_reports_the_running_version(self):
+        status = self.client.get("/api/v1/updates").json()
+        self.assertIn(status["phase"], {"idle", "failed"})
+        self.assertEqual(status["current_version"], self.client.get("/api/v1/health").json()["version"])
+        self.assertFalse(status["installed"])
 
     @patch("app.storage._set_ollama_models_environment")
     def test_storage_settings_validate_and_schedule_new_locations(self, _set_ollama):

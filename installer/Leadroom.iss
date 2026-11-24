@@ -86,6 +86,9 @@ Name: "{autodesktop}\Leadroom"; Filename: "{app}\Leadroom.exe"; WorkingDir: "{ap
 
 [Run]
 Filename: "{app}\Leadroom.exe"; Description: "Launch Leadroom"; Flags: nowait postinstall skipifsilent
+; The in-app updater runs Setup quietly with /RELAUNCH=1 after quitting; this opens the new
+; version once the files are in place. Other quiet installs (scripts, tests) are not affected.
+Filename: "{app}\Leadroom.exe"; Flags: nowait; Check: RelaunchRequested
 
 [Code]
 type
@@ -152,6 +155,76 @@ begin
   if Default then Value := '1' else Value := '0';
   Value := Lowercase(ParamValue(Name, Value));
   Result := (Value = '1') or (Value = 'true') or (Value = 'yes');
+end;
+
+function RelaunchRequested: Boolean;
+begin
+  Result := ParamEnabled('RELAUNCH', False);
+end;
+
+const
+  UninstallKeyRoot = 'Software\Microsoft\Windows\CurrentVersion\Uninstall';
+
+{ Earlier Leadroom builds were registered under a different AppId, so Windows treats them
+  as a separate program and an install of this one would sit beside them. Any other
+  Inno Setup entry whose name starts with "Leadroom" is removed quietly before the new
+  files are copied. Workspace data, models and the map index live outside the program
+  folder, and a quiet uninstall keeps them (its keep-data question defaults to Yes). }
+procedure RemoveEarlierInstallsUnder(RootKey: Integer; const RootName: String);
+var
+  Names: TArrayOfString;
+  I, ResultCode, Waited: Integer;
+  OwnKey, Key, DisplayName, Uninstaller: String;
+  Started: Boolean;
+begin
+  if not RegGetSubkeyNames(RootKey, UninstallKeyRoot, Names) then Exit;
+  OwnKey := ExpandConstant('{#SetupSetting("AppId")}') + '_is1';
+  for I := 0 to GetArrayLength(Names) - 1 do begin
+    if CompareText(Names[I], OwnKey) = 0 then Continue;
+    if CompareText(Copy(Names[I], Length(Names[I]) - 3, 4), '_is1') <> 0 then Continue;
+    Key := UninstallKeyRoot + '\' + Names[I];
+    if not RegQueryStringValue(RootKey, Key, 'DisplayName', DisplayName) then Continue;
+    if CompareText(Copy(DisplayName, 1, 8), 'Leadroom') <> 0 then Continue;
+    if not RegQueryStringValue(RootKey, Key, 'UninstallString', Uninstaller) then Continue;
+    Uninstaller := RemoveQuotes(Uninstaller);
+    if not FileExists(Uninstaller) then begin
+      Log('Skipping an earlier Leadroom entry without its uninstaller: ' + RootName + '\' + Names[I]);
+      Continue;
+    end;
+    Log('Removing an earlier Leadroom installation: ' + DisplayName + ' (' + RootName + '\' + Names[I] + ')');
+    if RootKey = HKEY_CURRENT_USER then
+      Started := Exec(Uninstaller, '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART', '',
+        SW_HIDE, ewWaitUntilTerminated, ResultCode)
+    else
+      { A machine-wide install needs administrator rights to remove; Windows asks. }
+      Started := ShellExec('', Uninstaller, '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART', '',
+        SW_SHOWNORMAL, ewWaitUntilTerminated, ResultCode);
+    if not Started then begin
+      Log('The earlier uninstaller could not be started: ' + SysErrorMessage(ResultCode));
+      Continue;
+    end;
+    { The uninstaller finishes in a copy of itself; wait for its entry to disappear. }
+    Waited := 0;
+    while RegKeyExists(RootKey, Key) and (Waited < 600) do begin
+      PumpPendingMessages;
+      Sleep(100);
+      Waited := Waited + 1;
+    end;
+    if RegKeyExists(RootKey, Key) then
+      Log('The earlier installation is still registered after its uninstaller ran.')
+    else
+      Log('The earlier installation was removed.');
+  end;
+end;
+
+procedure RemoveEarlierInstalls;
+begin
+  RemoveEarlierInstallsUnder(HKEY_CURRENT_USER, 'HKCU');
+  if IsWin64 then begin
+    RemoveEarlierInstallsUnder(HKLM64, 'HKLM64');
+    RemoveEarlierInstallsUnder(HKLM32, 'HKLM32');
+  end else
+    RemoveEarlierInstallsUnder(HKEY_LOCAL_MACHINE, 'HKLM');
 end;
 
 function IsAbsoluteWindowsPath(const Value: String): Boolean;
@@ -458,6 +531,11 @@ begin
         ExpandConstant('{localappdata}\Leadroom\logs\install.log') + ' and run setup again.';
       Exit;
     end;
+    { Only now, with the prerequisites in place: a failure above leaves the earlier
+      version installed and working. }
+    BootstrapProgress.SetText('Removing the earlier version',
+      'Your workspace, models and map data are kept');
+    RemoveEarlierInstalls;
   finally
     BootstrapRunning := False;
     BootstrapCancelButton.Visible := False;

@@ -182,6 +182,17 @@ def _run_native_window(app, port: int, launch_token: str, icon_path: Path) -> No
         return str(result[0]) if result else ""
 
     app.state.choose_directory = choose_directory
+
+    def quit_for_update() -> None:
+        # Setup waits for Leadroom.exe to let go of its files. Close the window the normal
+        # way, and end the process outright if anything holds it open.
+        # A daemon timer: a clean exit is not held up by it.
+        watchdog = threading.Timer(15.0, lambda: _hard_exit(0))
+        watchdog.daemon = True
+        watchdog.start()
+        window.destroy()
+
+    app.state.quit_app = quit_for_update
     window.events.closed += lambda *_args: setattr(server, "should_exit", True)
     try:
         webview.start(
@@ -192,6 +203,19 @@ def _run_native_window(app, port: int, launch_token: str, icon_path: Path) -> No
         )
     finally:
         _stop_server(server, server_thread)
+
+
+def _start_background_checks(app, bootstrap_root: Path) -> None:
+    """Look for app updates and keep the local map data current while the app is open."""
+    from app.local_data import LOCAL_DATA_SYNC
+    from app.updater import Updater
+
+    try:
+        app.state.updater = Updater(bootstrap_root)
+        app.state.updater.start_automatic()
+    except Exception:  # noqa: BLE001 - the app must open even if update checks cannot start
+        logging.getLogger(__name__).exception("Could not start update checks")
+    LOCAL_DATA_SYNC.start_automatic()
 
 
 def main() -> None:
@@ -261,6 +285,7 @@ def main() -> None:
 
     try:
         app = create_app()
+        _start_background_checks(app, bootstrap_root)
         if os.getenv("LEAD_SCRAPER_NO_BROWSER") == "1":
             uvicorn.run(
                 app,

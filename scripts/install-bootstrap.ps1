@@ -180,26 +180,101 @@ function Stop-InstallerProcessTree([Diagnostics.Process]$Process) {
 function Invoke-CancellableProcess(
     [string]$FilePath,
     [string]$ArgumentLine,
-    [string]$Label
+    [string]$Label,
+    [switch]$CaptureOutput
 ) {
     Assert-InstallerNotCancelled
-    $process = Start-Process `
-        -FilePath $FilePath `
-        -ArgumentList $ArgumentLine `
-        -WindowStyle Hidden `
-        -PassThru
+    $outputPath = $null
+    $errorPath = $null
+    if ($CaptureOutput) {
+        # Helper scripts report what went wrong on their output streams; keep both so a
+        # failure can be explained in install.log and in Setup's own error message.
+        $outputPath = [IO.Path]::GetTempFileName()
+        $errorPath = [IO.Path]::GetTempFileName()
+        $process = Start-Process `
+            -FilePath $FilePath `
+            -ArgumentList $ArgumentLine `
+            -NoNewWindow `
+            -RedirectStandardOutput $outputPath `
+            -RedirectStandardError $errorPath `
+            -PassThru
+    } else {
+        $process = Start-Process `
+            -FilePath $FilePath `
+            -ArgumentList $ArgumentLine `
+            -WindowStyle Hidden `
+            -PassThru
+    }
     try {
         while (-not $process.WaitForExit(250)) {
             Assert-InstallerNotCancelled
         }
         if ($process.ExitCode -ne 0) {
+            $reason = ""
+            if ($CaptureOutput) {
+                $reason = Write-ProcessOutputToLog $Label $outputPath $errorPath
+            }
+            if ($reason) { throw "$Label failed: $reason" }
             throw "$Label failed with exit code $($process.ExitCode)."
         }
+        if ($CaptureOutput) { Write-ProcessOutputToLog $Label $outputPath $errorPath | Out-Null }
     } catch [OperationCanceledException] {
         Stop-InstallerProcessTree $process
         throw
     } finally {
         $process.Dispose()
+        foreach ($path in @($outputPath, $errorPath)) {
+            if ($path) { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
+        }
+    }
+}
+
+# Appends the end of a helper's output to install.log and returns the most specific
+# error line, or "" when there is none.
+function Write-ProcessOutputToLog([string]$Label, [string]$OutputPath, [string]$ErrorPath) {
+    $lines = @()
+    foreach ($path in @($OutputPath, $ErrorPath)) {
+        if ($path -and (Test-Path -LiteralPath $path)) {
+            $lines += @(Get-Content -LiteralPath $path -ErrorAction SilentlyContinue |
+                Where-Object { $_ -and $_.Trim() })
+        }
+    }
+    if ($lines.Count -gt 0) {
+        Write-InstallLog "$Label output (last lines):"
+        foreach ($line in ($lines | Select-Object -Last 40)) { Write-InstallLog "    $line" }
+    }
+    $errors = @(Get-Content -LiteralPath $ErrorPath -ErrorAction SilentlyContinue |
+        Where-Object { $_ -and $_.Trim() })
+    # A terminating PowerShell error is written as its message followed by an "At <file>"
+    # line; the last such message is the one that stopped the script.
+    $message = ""
+    for ($index = $errors.Count - 1; $index -ge 1; $index--) {
+        if ($errors[$index] -match '^At (line:|[A-Za-z]:\\)') {
+            $message = $errors[$index - 1]
+            break
+        }
+    }
+    if (-not $message -and $errors.Count -gt 0) { $message = $errors[$errors.Count - 1] }
+    return ($message -replace '^[A-Za-z]:\\[^:]+\.ps1 : ', '').Trim()
+}
+
+# True when WSL already holds an imported Leadroom map index with incremental updates set
+# up. Any failure (no database, PostgreSQL stopped, no WSL) counts as "no index".
+function Test-ExistingLocalIndex {
+    try {
+        $query = "SELECT to_regclass('public.leadroom_osm_businesses') IS NOT NULL " +
+            "AND to_regclass('public.osm2pgsql_properties') IS NOT NULL " +
+            "AND EXISTS (SELECT 1 FROM osm2pgsql_properties WHERE property = 'replication_base_url')"
+        # Captured whole: see setup-local-data.ps1 for why not Select-Object -First.
+        $clusters = @(wsl.exe -d Ubuntu -u root -- pg_lsclusters --no-header | Where-Object { $_ -and $_.Trim() })
+        if ($clusters.Count -gt 0) {
+            $parts = $clusters[0].Trim() -split "\s+"
+            wsl.exe -d Ubuntu -u root -- pg_ctlcluster $parts[0] $parts[1] start | Out-Null
+        }
+        $answer = @(wsl.exe -d Ubuntu -u postgres -- psql -d leadroom_osm -tAc $query)
+        return ($LASTEXITCODE -eq 0) -and (($answer -join "").Trim() -eq "t")
+    } catch {
+        return $false
     }
 }
 
@@ -630,28 +705,39 @@ if ($Mode -eq "FullLocal" -and $SetupLocalData) {
     if (-not $ubuntu) {
         throw "Full Local setup needs WSL2 with Ubuntu. Run 'wsl --install -d Ubuntu', restart Windows, then rerun the installer."
     }
-    $ubuntuStorage = Get-UbuntuStoragePath
-    if (-not $ubuntuStorage) {
-        throw "Setup could not locate Ubuntu's WSL storage folder to verify free disk space."
-    }
-    Assert-Capacity $ubuntuStorage 30GB "Ubuntu WSL storage drive"
-    Write-InstallerStatus 10 "Building the local index" "Downloading and importing OpenStreetMap data; this can take a long time"
-    Write-InstallLog "Installing the Full Local database engine."
     $powershell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
-    $setupScript = Join-Path $HelperRoot "setup-local-data.ps1"
-    $setupArguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File " +
-        (Quote-ProcessArgument $setupScript)
-    Invoke-CancellableProcess $powershell $setupArguments "Full Local database setup"
+    if (Test-ExistingLocalIndex) {
+        # Reinstalling or upgrading must not rebuild the index: a fresh import takes hours
+        # and would replace data that the incremental updates have already brought forward.
+        Write-InstallerStatus 10 "Keeping your local index" "An existing OpenStreetMap index was found; refreshing its update service"
+        Write-InstallLog "An existing local map index was found; keeping it and refreshing its update service."
+        $updatesArguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File " +
+            (Quote-ProcessArgument (Join-Path $HelperRoot "setup-local-updates.ps1")) +
+            " -ResourceDirectory " + (Quote-ProcessArgument $ResourceRoot)
+        Invoke-CancellableProcess $powershell $updatesArguments "Local data update service" -CaptureOutput
+    } else {
+        $ubuntuStorage = Get-UbuntuStoragePath
+        if (-not $ubuntuStorage) {
+            throw "Setup could not locate Ubuntu's WSL storage folder to verify free disk space."
+        }
+        Assert-Capacity $ubuntuStorage 30GB "Ubuntu WSL storage drive"
+        Write-InstallerStatus 10 "Building the local index" "Downloading and importing OpenStreetMap data; this can take a long time"
+        Write-InstallLog "Installing the Full Local database engine."
+        $setupScript = Join-Path $HelperRoot "setup-local-data.ps1"
+        $setupArguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File " +
+            (Quote-ProcessArgument $setupScript)
+        Invoke-CancellableProcess $powershell $setupArguments "Full Local database setup" -CaptureOutput
 
-    $importScript = Join-Path $HelperRoot "import-osm.ps1"
-    $importArguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File " +
-        (Quote-ProcessArgument $importScript) +
-        " -Region " + (Quote-ProcessArgument $OsmRegion) +
-        " -DataDirectory " + (Quote-ProcessArgument (Join-Path $DownloadsRoot "osm")) +
-        " -ResourceDirectory " + (Quote-ProcessArgument $ResourceRoot) +
-        " -UpdateScriptPath " +
-        (Quote-ProcessArgument (Join-Path $HelperRoot "setup-local-updates.ps1"))
-    Invoke-CancellableProcess $powershell $importArguments "OpenStreetMap import"
+        $importScript = Join-Path $HelperRoot "import-osm.ps1"
+        $importArguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File " +
+            (Quote-ProcessArgument $importScript) +
+            " -Region " + (Quote-ProcessArgument $OsmRegion) +
+            " -DataDirectory " + (Quote-ProcessArgument (Join-Path $DownloadsRoot "osm")) +
+            " -ResourceDirectory " + (Quote-ProcessArgument $ResourceRoot) +
+            " -UpdateScriptPath " +
+            (Quote-ProcessArgument (Join-Path $HelperRoot "setup-local-updates.ps1"))
+        Invoke-CancellableProcess $powershell $importArguments "OpenStreetMap import" -CaptureOutput
+    }
 }
 
 Write-InstallerStatus 95 "Saving workspace settings" "Recording the selected storage folders"
