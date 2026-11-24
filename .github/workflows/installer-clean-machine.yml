@@ -155,6 +155,7 @@ jobs:
 
       - name: Run Setup with every default component
         shell: pwsh
+        timeout-minutes: 30
         run: |
           $root = Join-Path $env:RUNNER_TEMP "leadroom"
           $arguments = @(
@@ -254,9 +255,10 @@ jobs:
 
       - name: Update the running app from a test release feed
         shell: pwsh
+        timeout-minutes: 20
         run: |
           $home_ = "$env:LOCALAPPDATA\Leadroom"
-          $current = (Invoke-RestMethod http://127.0.0.1:8877/api/v1/health).version
+          $current = (Invoke-RestMethod http://127.0.0.1:8877/api/v1/health -TimeoutSec 30).version
           "Installed version: $current; offering $env:NEXT_VERSION"
           # A release list in the GitHub API's shape, served next to the newer signed Setup.
           $release = @{
@@ -275,22 +277,23 @@ jobs:
           $session.Cookies.Add((New-Object System.Net.Cookie("leadroom_session", $token, "/", "127.0.0.1")))
           $api = "http://127.0.0.1:8877/api/v1"
 
-          $found = Invoke-RestMethod -Method Post "$api/updates/check" -WebSession $session
+          $found = Invoke-RestMethod -Method Post "$api/updates/check" -WebSession $session -TimeoutSec 60
           "Check: $($found | ConvertTo-Json -Compress)"
           if ($found.phase -ne "available" -or $found.version -ne $env:NEXT_VERSION) { throw "The app did not find the newer release." }
           if (-not $found.installed) { throw "The app does not know it was installed by Setup." }
 
-          Invoke-RestMethod -Method Post "$api/updates/download" -WebSession $session | Out-Null
+          Invoke-RestMethod -Method Post "$api/updates/download" -WebSession $session -TimeoutSec 60 | Out-Null
           $deadline = (Get-Date).AddMinutes(5)
           do {
             Start-Sleep -Seconds 2
-            $state = Invoke-RestMethod "$api/updates" -WebSession $session
+            $state = Invoke-RestMethod "$api/updates" -WebSession $session -TimeoutSec 60
           } while ($state.phase -eq "downloading" -and (Get-Date) -lt $deadline)
           "Download: $($state | ConvertTo-Json -Compress)"
           if ($state.phase -ne "ready") { throw "The update was not downloaded and verified: $($state.error)" }
 
-          $old = Get-Process Leadroom -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id
-          Invoke-RestMethod -Method Post "$api/updates/install" -WebSession $session | Out-Null
+          $old = @(Get-Process Leadroom -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
+          "Leadroom processes before the update: $($old -join ', ')"
+          Invoke-RestMethod -Method Post "$api/updates/install" -WebSession $session -TimeoutSec 60 | Out-Null
           $deadline = (Get-Date).AddMinutes(10)
           $health = $null
           while ((Get-Date) -lt $deadline) {
@@ -305,7 +308,7 @@ jobs:
           "--- update-installer.log (tail)"; Get-Content "$home_\logs\update-installer.log" -Tail 30 -ErrorAction SilentlyContinue
           if (-not $health -or $health.version -ne $env:NEXT_VERSION) { throw "The app did not come back as $env:NEXT_VERSION after the update." }
           "Running after the update: $($health | ConvertTo-Json -Compress)"
-          $still = Get-Process -Id $old -ErrorAction SilentlyContinue
+          $still = if ($old.Count) { Get-Process -Id $old -ErrorAction SilentlyContinue }
           if ($still) { throw "The old app process is still running." }
           $entry = Get-ChildItem HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall |
             ForEach-Object { Get-ItemProperty $_.PSPath } | Where-Object { $_.DisplayName -like "Leadroom*" }
@@ -318,7 +321,12 @@ jobs:
       - name: Collect logs
         if: always()
         shell: pwsh
+        timeout-minutes: 5
         run: |
+          "--- update.log"; Get-Content "$env:LOCALAPPDATA\Leadroom\logs\update.log" -ErrorAction SilentlyContinue
+          "--- update-installer.log (tail)"; Get-Content "$env:LOCALAPPDATA\Leadroom\logs\update-installer.log" -Tail 60 -ErrorAction SilentlyContinue
+          "--- leadroom.log (tail)"; Get-Content "$env:LOCALAPPDATA\Leadroom\logs\leadroom.log" -Tail 40 -ErrorAction SilentlyContinue
+          "--- processes"; Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'Leadroom|python|powershell|is-|setup' } | ForEach-Object { "$($_.ProcessId) <- $($_.ParentProcessId) $($_.Name)" }
           New-Item -ItemType Directory -Force logs | Out-Null
           Copy-Item "$env:LOCALAPPDATA\Leadroom\logs\*" logs\ -ErrorAction SilentlyContinue
           Copy-Item "$env:RUNNER_TEMP\leadroom-setup.log" logs\ -ErrorAction SilentlyContinue
