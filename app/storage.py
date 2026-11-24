@@ -32,7 +32,8 @@ def load_storage_config(config_path: Path, bootstrap_root: Path) -> dict[str, An
         stored: dict[str, Any] = {}
     else:
         try:
-            stored = json.loads(config_path.read_text(encoding="utf-8"))
+            # utf-8-sig also accepts files written with a BOM by older installers.
+            stored = json.loads(config_path.read_text(encoding="utf-8-sig"))
         except (OSError, json.JSONDecodeError) as exc:
             raise StorageConfigurationError(
                 f"Storage configuration is unreadable: {config_path}. "

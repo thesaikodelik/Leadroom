@@ -477,7 +477,9 @@ function Save-StorageLocator([string]$DataPath, [string]$DownloadsPath) {
         move_downloads = $false
     }
     $temporary = "$configPath.installing"
-    $payload | ConvertTo-Json | Set-Content -LiteralPath $temporary -Encoding UTF8
+    # Windows PowerShell 5.1 writes a BOM with -Encoding UTF8, which Python's JSON
+    # parser rejects; write plain UTF-8 so the app can read the file.
+    [IO.File]::WriteAllText($temporary, ($payload | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
     Move-Item -LiteralPath $temporary -Destination $configPath -Force
     Write-InstallLog "Configured workspace storage at $DataPath and downloads at $DownloadsPath."
 }

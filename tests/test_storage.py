@@ -223,3 +223,11 @@ def test_migration_never_adopts_a_database_that_appears_after_scheduling(tmp_pat
         assert connection.execute("SELECT value FROM marker").fetchone() == ("source",)
     with sqlite3.connect(target / "lead_scraper.db") as connection:
         assert connection.execute("SELECT value FROM marker").fetchone() == ("unrelated",)
+
+
+def test_storage_config_written_with_bom_is_still_readable(tmp_path: Path) -> None:
+    config_path = tmp_path / "storage.json"
+    payload = {"data_root": str(tmp_path / "data"), "downloads_root": str(tmp_path / "dl")}
+    config_path.write_bytes(b"\xef\xbb\xbf" + json.dumps(payload).encode("utf-8"))
+    config = load_storage_config(config_path, tmp_path)
+    assert Path(config["data_root"]) == tmp_path / "data"

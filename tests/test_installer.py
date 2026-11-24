@@ -125,3 +125,45 @@ def test_installer_links_model_checkbox_to_ollama() -> None:
     definition = (ROOT / "installer" / "Leadroom.iss").read_text(encoding="utf-8")
     assert "OnClickCheck := @DependencyClickCheck" in definition
     assert "ItemEnabled[2] := ModelAvailable" in definition
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows installer scripts")
+def test_bootstrap_storage_file_is_readable_by_the_app(tmp_path: Path) -> None:
+    """Setup's storage.json must load in the app (regression: PowerShell UTF-8 BOM)."""
+    from app.storage import load_storage_config
+
+    local_app_data = tmp_path / "localappdata"
+    local_app_data.mkdir()
+    data_root = tmp_path / "workspace"
+    downloads_root = tmp_path / "downloads"
+    env = {**os.environ, "LOCALAPPDATA": str(local_app_data)}
+    subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(ROOT / "scripts" / "install-bootstrap.ps1"),
+            "-Mode",
+            "Standard",
+            "-InstallRoot",
+            str(tmp_path / "app"),
+            "-DataRoot",
+            str(data_root),
+            "-DownloadsRoot",
+            str(downloads_root),
+            "-InstallWebView",
+            "-ForceStorage",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    bootstrap_root = local_app_data / "Leadroom"
+    config_path = bootstrap_root / "storage.json"
+    assert not config_path.read_bytes().startswith(b"\xef\xbb\xbf")
+    config = load_storage_config(config_path, bootstrap_root)
+    assert Path(config["data_root"]) == data_root
+    assert Path(config["downloads_root"]) == downloads_root
