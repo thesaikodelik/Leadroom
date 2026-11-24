@@ -152,13 +152,16 @@ jobs:
           $root = Join-Path $env:RUNNER_TEMP "leadroom"
           $env:LEAD_SCRAPER_NO_BROWSER = "1"
           $env:LEADROOM_PORT = "8877"
-          Start-Process -FilePath "$root\app\Leadroom.exe" -WindowStyle Hidden | Out-Null
-          $deadline = (Get-Date).AddSeconds(90)
+          $app = Start-Process -FilePath "$root\app\Leadroom.exe" -WindowStyle Hidden -PassThru
+          $timer = [Diagnostics.Stopwatch]::StartNew()
           $health = $null
-          while ((Get-Date) -lt $deadline) {
+          while ($timer.Elapsed.TotalSeconds -lt 180 -and -not $app.HasExited) {
             try { $health = Invoke-RestMethod http://127.0.0.1:8877/api/v1/health -TimeoutSec 3; break }
             catch { Start-Sleep -Seconds 1 }
           }
+          "Waited $([int]$timer.Elapsed.TotalSeconds)s; app exited: $($app.HasExited)"
+          if ($app.HasExited) { "App exit code: $($app.ExitCode)" }
+          Get-Content "$env:LOCALAPPDATA\Leadroom\logs\leadroom.log" -Tail 40 -ErrorAction SilentlyContinue
           if (-not $health -or $health.status -ne "ok") { throw "Installed application health check failed." }
           "Health: $($health | ConvertTo-Json -Compress)"
 
@@ -167,7 +170,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force logs | Out-Null
-          Copy-Item "$env:LOCALAPPDATA\Leadroom\logs\install.log" logs\ -ErrorAction SilentlyContinue
+          Copy-Item "$env:LOCALAPPDATA\Leadroom\logs\*" logs\ -ErrorAction SilentlyContinue
           Copy-Item "$env:RUNNER_TEMP\leadroom-setup.log" logs\ -ErrorAction SilentlyContinue
           Get-Content logs\install.log -ErrorAction SilentlyContinue
 
