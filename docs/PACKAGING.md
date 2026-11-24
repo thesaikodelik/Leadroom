@@ -1,0 +1,70 @@
+# Windows Packaging
+
+Leadroom currently targets 64-bit Windows 10 and Windows 11. The installer is a local release candidate until clean-machine validation and the binary dependency-licence review are complete.
+
+## Build Requirements
+
+- Python 3.12 or 3.13 with `requirements-dev.txt` installed
+- Node.js 22+
+- Inno Setup 6 (`winget install --id JRSoftware.InnoSetup --exact --source winget`)
+
+## Build All Artifacts
+
+```powershell
+.\scripts\build-release.ps1 -Version 0.1.0
+```
+
+This produces ignored local artifacts in `dist`:
+
+- `Leadroom-Setup.exe`
+- `Leadroom-Portable.zip`
+- `checksums.txt`
+
+The installer contains the application executable, licence and third-party notices, bootstrap scripts, and optional Full Local data scripts. Large models and map data are fetched only after explicit selection in the installer.
+
+## Installer Experience
+
+The Wizard provides:
+
+1. Standard or Full Local installation mode
+2. Separate workspace-data and large-download folders
+3. Optional WebView2 and Ollama installation through `winget`, falling back to the vendors' official installers when `winget` is missing or fails
+4. Optional verified `ollama pull` for `llama3.2:3b`
+5. Optional WSL/PostgreSQL/PostGIS/OpenStreetMap setup for Full Local
+6. Start Menu and optional Desktop shortcuts
+
+The preparation page reports the active component while bootstrap runs. Ollama model downloads stream their current layer percentage and transferred size into the installer; package-manager and Full Local operations show named stage progress when their underlying tools do not expose a reliable overall percentage. Cancel remains available during preparation, signals active model downloads to stop, and lets Setup roll back the installation. Detailed events remain available in `%LOCALAPPDATA%\Leadroom\logs\install.log`.
+
+The model checkbox is disabled while Ollama is neither installed nor selected; a silent install that requests a model without Ollama skips the model instead of failing. When Setup installs Ollama itself, it points `OLLAMA_MODELS` at the selected downloads folder before installation and restarts the Ollama background app afterwards, so Leadroom finds the downloaded model without a sign-out.
+
+Upgrades preserve an existing `storage.json`. Uninstall removes application files and asks whether workspace data and downloads should be retained.
+
+## Silent Test Parameters
+
+```powershell
+.\dist\Leadroom-Setup.exe `
+  /VERYSILENT /SUPPRESSMSGBOXES /NORESTART `
+  /DIR="D:\Apps\Leadroom" `
+  /DATAROOT="D:\LeadroomData\workspace" `
+  /DOWNLOADSROOT="D:\LeadroomData\downloads" `
+  /INSTALL_WEBVIEW=1 /INSTALL_OLLAMA=1 /DOWNLOAD_MODEL=1
+```
+
+Other parameters are `/INSTALLMODE=full`, `/SETUP_LOCAL_DATA=1`, and the test-only `/FORCE_STORAGE=1`.
+
+Setting the environment variable `LEADROOM_SETUP_DISABLE_WINGET=1` before running Setup simulates a computer without `winget` and exercises the direct-download fallback.
+
+## Smoke Test
+
+```powershell
+.\scripts\test-installer.ps1
+.\scripts\test-installer-cancel.ps1
+```
+
+The smoke test temporarily backs up the current Leadroom bootstrap folder, silently installs to `build`, starts the installed executable on a dedicated localhost port, checks `/api/v1/health`, runs the uninstaller, and restores the original bootstrap folder and Ollama environment setting.
+
+The cancellation test begins a model download in an isolated folder, activates the installer's `Cancel setup` button, and verifies that Setup exits unsuccessfully, the bootstrap process stops, and no application executable remains installed.
+
+## Publication Blockers
+
+Do not upload these artifacts to a public GitHub Release yet. Complete the clean Windows 10/11 matrix, test a fresh Full Local import, add CI artifact generation, and resolve the binary-distribution issue recorded in `DEPENDENCY_LICENSES.md` first.

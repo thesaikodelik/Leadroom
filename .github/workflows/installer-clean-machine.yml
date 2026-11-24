@@ -1,0 +1,151 @@
+name: Installer clean-machine test
+
+# Builds Leadroom-Setup.exe and installs it on fresh Windows runners that do not
+# have Ollama, once with Windows Package Manager and once with it hidden so the
+# direct-download fallback is exercised.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+          npm ci --prefix frontend --no-audit --no-fund
+
+      - name: Ensure Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) { choco install innosetup -y --no-progress }
+
+      - name: Build installer
+        shell: pwsh
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\build-release.ps1 -Version 0.1.1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: leadroom-setup
+          path: dist/Leadroom-Setup.exe
+          retention-days: 3
+
+  clean-install:
+    needs: build
+    runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: with-winget
+            disable_winget: "0"
+          - name: without-winget
+            disable_winget: "1"
+    name: clean-install (${{ matrix.name }})
+    env:
+      LEADROOM_SETUP_DISABLE_WINGET: ${{ matrix.disable_winget }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: leadroom-setup
+
+      - name: Confirm the runner has no Ollama
+        shell: pwsh
+        run: |
+          $found = @(
+            (Get-Command ollama.exe -ErrorAction SilentlyContinue).Source,
+            "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe",
+            "$env:ProgramFiles\Ollama\ollama.exe"
+          ) | Where-Object { $_ -and (Test-Path $_) }
+          if ($found) { throw "Runner is not clean: Ollama found at $found" }
+          "winget on runner: " + ((Get-Command winget.exe -ErrorAction SilentlyContinue).Source ?? "none")
+          "winget hidden for this run: $env:LEADROOM_SETUP_DISABLE_WINGET"
+
+      - name: Run Setup with every default component
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "leadroom"
+          $arguments = @(
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART",
+            "/DIR=$root\app", "/DATAROOT=$root\data", "/DOWNLOADSROOT=$root\downloads",
+            "/INSTALL_WEBVIEW=1", "/INSTALL_OLLAMA=1", "/DOWNLOAD_MODEL=1",
+            "/LOG=$root-setup.log"
+          )
+          $setup = Start-Process -FilePath .\Leadroom-Setup.exe -ArgumentList $arguments -Wait -PassThru
+          "Setup exit code: $($setup.ExitCode)"
+          if ($setup.ExitCode -ne 0) { throw "Setup failed with exit code $($setup.ExitCode)." }
+
+      - name: Verify Leadroom, Ollama, and the model
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "leadroom"
+          if (-not (Test-Path "$root\app\Leadroom.exe")) { throw "Leadroom.exe was not installed." }
+          $ollama = "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe"
+          if (-not (Test-Path $ollama)) { throw "Ollama was not installed." }
+          $models = "$root\downloads\ollama\models"
+          if ([Environment]::GetEnvironmentVariable("OLLAMA_MODELS", "User") -ne $models) {
+            throw "OLLAMA_MODELS was not pointed at the selected downloads folder."
+          }
+          $manifest = "$models\manifests\registry.ollama.ai\library\llama3.2\3b"
+          if (-not (Test-Path $manifest)) { throw "The llama3.2:3b model was not downloaded to $models." }
+          $deadline = (Get-Date).AddSeconds(60)
+          $names = @()
+          while ((Get-Date) -lt $deadline) {
+            try { $names = (Invoke-RestMethod http://127.0.0.1:11434/api/tags -TimeoutSec 3).models.name; break }
+            catch { Start-Sleep -Seconds 2 }
+          }
+          "Ollama service models: $($names -join ', ')"
+          if ($names -notcontains "llama3.2:3b") { throw "The running Ollama service does not see llama3.2:3b." }
+
+      - name: Start the installed app and check health
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "leadroom"
+          $env:LEAD_SCRAPER_NO_BROWSER = "1"
+          $env:LEADROOM_PORT = "8877"
+          Start-Process -FilePath "$root\app\Leadroom.exe" -WindowStyle Hidden | Out-Null
+          $deadline = (Get-Date).AddSeconds(90)
+          $health = $null
+          while ((Get-Date) -lt $deadline) {
+            try { $health = Invoke-RestMethod http://127.0.0.1:8877/api/v1/health -TimeoutSec 3; break }
+            catch { Start-Sleep -Seconds 1 }
+          }
+          if (-not $health -or $health.status -ne "ok") { throw "Installed application health check failed." }
+          "Health: $($health | ConvertTo-Json -Compress)"
+
+      - name: Collect logs
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force logs | Out-Null
+          Copy-Item "$env:LOCALAPPDATA\Leadroom\logs\install.log" logs\ -ErrorAction SilentlyContinue
+          Copy-Item "$env:RUNNER_TEMP\leadroom-setup.log" logs\ -ErrorAction SilentlyContinue
+          Get-Content logs\install.log -ErrorAction SilentlyContinue
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: logs-${{ matrix.name }}
+          path: logs/
+          retention-days: 7
