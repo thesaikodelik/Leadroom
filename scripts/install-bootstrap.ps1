@@ -337,10 +337,20 @@ function Stop-OllamaProcesses([string]$Executable) {
 function Start-OllamaTray([string]$Executable) {
     if (-not $Executable) { return }
     $tray = Join-Path (Split-Path -Parent $Executable) "ollama app.exe"
-    if (Test-Path -LiteralPath $tray) {
+    if (-not (Test-Path -LiteralPath $tray)) { return }
+    # Launch through WMI so the long-lived tray app is not a descendant of Setup.
+    # Otherwise tools that wait for Setup's whole process tree (deployment agents,
+    # `Start-Process -Wait`) never see Setup finish. WMI also builds the process
+    # environment from the registry, so the new OLLAMA_MODELS value is applied.
+    try {
+        $result = Invoke-CimMethod -ClassName Win32_Process -MethodName Create `
+            -Arguments @{ CommandLine = '"' + $tray + '"' }
+        if ($result.ReturnValue -ne 0) { throw "Win32_Process.Create returned $($result.ReturnValue)." }
+    } catch {
+        Write-InstallLog "Detached launch failed ($($_.Exception.Message)); starting Ollama directly."
         Start-Process -FilePath $tray -WindowStyle Hidden | Out-Null
-        Write-InstallLog "Started the Ollama background app."
     }
+    Write-InstallLog "Started the Ollama background app."
 }
 
 function Invoke-OllamaModelPull([string]$Endpoint, [string]$ModelName) {

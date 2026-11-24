@@ -117,6 +117,8 @@ def test_bootstrap_falls_back_when_winget_is_unavailable() -> None:
     # A model request without Ollama is skipped instead of failing setup.
     assert "cannot be downloaded because Ollama is not installed" not in definition
     assert "$DownloadModel = $false" in definition
+    # The Ollama tray must not stay inside Setup's process tree.
+    assert "-ClassName Win32_Process -MethodName Create" in definition
 
 
 def test_installer_links_model_checkbox_to_ollama() -> None:

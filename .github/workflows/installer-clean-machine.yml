@@ -63,6 +63,7 @@ jobs:
           - name: without-winget
             disable_winget: "1"
     name: clean-install (${{ matrix.name }})
+    timeout-minutes: 45
     env:
       LEADROOM_SETUP_DISABLE_WINGET: ${{ matrix.disable_winget }}
     steps:
@@ -92,7 +93,28 @@ jobs:
             "/INSTALL_WEBVIEW=1", "/INSTALL_OLLAMA=1", "/DOWNLOAD_MODEL=1",
             "/LOG=$root-setup.log"
           )
-          $setup = Start-Process -FilePath .\Leadroom-Setup.exe -ArgumentList $arguments -Wait -PassThru
+          $setup = Start-Process -FilePath .\Leadroom-Setup.exe -ArgumentList $arguments -PassThru
+          $log = "$env:LOCALAPPDATA\Leadroom\logs\install.log"
+          $deadline = (Get-Date).AddMinutes(25)
+          $shown = 0
+          while (-not $setup.WaitForExit(30000)) {
+            "--- $(Get-Date -Format HH:mm:ss) still running"
+            if (Test-Path $log) {
+              $lines = @(Get-Content $log)
+              $lines | Select-Object -Skip $shown
+              $shown = $lines.Count
+            }
+            Get-ChildItem "$env:TEMP\is-*\leadroom-bootstrap.status" -ErrorAction SilentlyContinue |
+              ForEach-Object { "status: " + ((Get-Content $_.FullName) -join ' | ') }
+            Get-CimInstance Win32_Process |
+              Where-Object { $_.Name -match 'powershell|ollama|winget|setup|webview|msiexec|AppInstaller' } |
+              ForEach-Object { "proc: $($_.ProcessId) <- $($_.ParentProcessId) $($_.Name) $($_.CommandLine)".Substring(0, [Math]::Min(260, "proc: $($_.ProcessId) <- $($_.ParentProcessId) $($_.Name) $($_.CommandLine)".Length)) }
+            if ((Get-Date) -gt $deadline) {
+              Stop-Process -Id $setup.Id -Force
+              throw "Setup did not finish within 25 minutes."
+            }
+          }
+          if (Test-Path $log) { Get-Content $log | Select-Object -Skip $shown }
           "Setup exit code: $($setup.ExitCode)"
           if ($setup.ExitCode -ne 0) { throw "Setup failed with exit code $($setup.ExitCode)." }
 
@@ -116,6 +138,12 @@ jobs:
             catch { Start-Sleep -Seconds 2 }
           }
           "Ollama service models: $($names -join ', ')"
+          $tray = Get-CimInstance Win32_Process -Filter "Name='ollama app.exe'" | Select-Object -First 1
+          if ($tray) {
+            $parent = (Get-CimInstance Win32_Process -Filter "ProcessId=$($tray.ParentProcessId)").Name
+            "Ollama background app parent: $parent"
+            if ($parent -match 'powershell|Leadroom-Setup') { throw "Ollama was started inside Setup's process tree." }
+          }
           if ($names -notcontains "llama3.2:3b") { throw "The running Ollama service does not see llama3.2:3b." }
 
       - name: Start the installed app and check health
