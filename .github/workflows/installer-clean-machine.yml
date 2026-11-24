@@ -270,25 +270,27 @@ jobs:
           $server = Start-Process python -ArgumentList @("-m", "http.server", "8899", "--bind", "127.0.0.1", "--directory", (Resolve-Path next).Path) -PassThru -WindowStyle Hidden
           Set-Content "$home_\update-feed.txt" "http://127.0.0.1:8899/releases.json"
           $token = (Get-Content "$home_\leadroom.instance.json" | ConvertFrom-Json).token
-          $headers = @{ Cookie = "leadroom_session=$token" }
+          # A cookie in a web session: a Cookie entry in -Headers is not sent by every PowerShell.
+          $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+          $session.Cookies.Add((New-Object System.Net.Cookie("leadroom_session", $token, "/", "127.0.0.1")))
           $api = "http://127.0.0.1:8877/api/v1"
 
-          $found = Invoke-RestMethod -Method Post "$api/updates/check" -Headers $headers
+          $found = Invoke-RestMethod -Method Post "$api/updates/check" -WebSession $session
           "Check: $($found | ConvertTo-Json -Compress)"
           if ($found.phase -ne "available" -or $found.version -ne $env:NEXT_VERSION) { throw "The app did not find the newer release." }
           if (-not $found.installed) { throw "The app does not know it was installed by Setup." }
 
-          Invoke-RestMethod -Method Post "$api/updates/download" -Headers $headers | Out-Null
+          Invoke-RestMethod -Method Post "$api/updates/download" -WebSession $session | Out-Null
           $deadline = (Get-Date).AddMinutes(5)
           do {
             Start-Sleep -Seconds 2
-            $state = Invoke-RestMethod "$api/updates" -Headers $headers
+            $state = Invoke-RestMethod "$api/updates" -WebSession $session
           } while ($state.phase -eq "downloading" -and (Get-Date) -lt $deadline)
           "Download: $($state | ConvertTo-Json -Compress)"
           if ($state.phase -ne "ready") { throw "The update was not downloaded and verified: $($state.error)" }
 
           $old = Get-Process Leadroom -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id
-          Invoke-RestMethod -Method Post "$api/updates/install" -Headers $headers | Out-Null
+          Invoke-RestMethod -Method Post "$api/updates/install" -WebSession $session | Out-Null
           $deadline = (Get-Date).AddMinutes(10)
           $health = $null
           while ((Get-Date) -lt $deadline) {
