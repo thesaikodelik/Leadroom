@@ -28,7 +28,11 @@ CloseApplicationsFilter=Leadroom.exe
 AllowCancelDuringInstall=yes
 OutputDir=..\dist
 OutputBaseFilename=Leadroom-Setup
-SetupIconFile=..\assets\leadroom-icon.ico
+; The setup icon is the app icon with a download badge, so the installer is easy to
+; tell apart from the installed Leadroom.exe.
+SetupIconFile=..\assets\leadroom-setup.ico
+WizardImageFile=images\wizard-large-100.bmp,images\wizard-large-125.bmp,images\wizard-large-150.bmp,images\wizard-large-200.bmp
+WizardSmallImageFile=images\wizard-small-100.bmp,images\wizard-small-125.bmp,images\wizard-small-150.bmp,images\wizard-small-200.bmp
 UninstallDisplayIcon={app}\Leadroom.exe
 LicenseFile=..\LICENSE
 Compression=lzma2/ultra64

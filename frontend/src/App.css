@@ -468,6 +468,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px
 .desktop-brand small { color: #89938f; font-size: var(--type-caption); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: 0; }
 .brand-mark { width: 36px; height: 36px; border-radius: 5px; color: #162019; background: #bce967; transform: rotate(-3deg); }
 .brand-mark svg { width: 17px; }
+.brand-mark .leadroom-mark { width: 20px; height: 20px; }
 .brand-mark img { width: 100%; height: 100%; display: block; object-fit: cover; border-radius: inherit; }
 .brand-mark-custom { overflow: hidden; background: #fff; transform: none; }
 .mobile-brand { display: none; }

@@ -169,3 +169,15 @@ def test_bootstrap_storage_file_is_readable_by_the_app(tmp_path: Path) -> None:
     config = load_storage_config(config_path, bootstrap_root)
     assert Path(config["data_root"]) == data_root
     assert Path(config["downloads_root"]) == downloads_root
+
+
+def test_setup_icon_is_distinct_from_the_app_icon() -> None:
+    definition = (ROOT / "installer" / "Leadroom.iss").read_text(encoding="utf-8")
+    assert r"SetupIconFile=..\assets\leadroom-setup.ico" in definition
+    app_icon = (ROOT / "assets" / "leadroom-icon.ico").read_bytes()
+    setup_icon = (ROOT / "assets" / "leadroom-setup.ico").read_bytes()
+    assert app_icon != setup_icon
+    for line in definition.splitlines():
+        if line.startswith(("WizardImageFile=", "WizardSmallImageFile=")):
+            for image in line.split("=", 1)[1].split(","):
+                assert (ROOT / "installer" / image).is_file(), image

@@ -253,7 +253,17 @@ function Shell() {
 }
 
 function BrandMark({ logo, name }: { logo: string; name: string }) {
-  return <span className={`brand-mark ${logo ? 'brand-mark-custom' : ''}`}>{logo ? <img src={logo} alt={`${name} logo`} /> : <Sparkles size={18} />}</span>
+  return <span className={`brand-mark ${logo ? 'brand-mark-custom' : ''}`}>{logo ? <img src={logo} alt={`${name} logo`} /> : <LeadroomMark />}</span>
+}
+
+// The Leadroom mark, drawn in the theme's foreground colour (white on every coloured brand tile).
+function LeadroomMark() {
+  return (
+    <svg className="leadroom-mark" viewBox="0 0 3000 3000" fill="currentColor" aria-hidden="true" focusable="false">
+      <path d="M415.38,3000h152.9l1385.55-.04c270.54-28.62,361.3-80.29,538.28-327.18l166.88-238.83,341.01-505.81-1084.23,1.64c-262.22-15.72-437.21,159.07-486.87,218.55l-224.4,233.16-394.07,396.81c-63.74,58.09-112.94,104.57-185.29,149.6C552.76,2972.97,488.95,2999.28,415.38,3000Z" />
+      <path d="M0,2584.62c0-56.09,0-99.06,0-152.9l.04-1385.55c28.62-270.54,80.29-361.3,327.18-538.28l238.83-166.88L1071.86,0l-1.64,1084.23c15.72,262.22-159.07,437.21-218.55,486.87l-233.16,224.4-396.81,394.07c-58.09,63.74-104.57,112.94-149.6,185.29C27.03,2447.24.72,2511.05,0,2584.62Z" />
+    </svg>
+  )
 }
 
 function RunsPage() {
