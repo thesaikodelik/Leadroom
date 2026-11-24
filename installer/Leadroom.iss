@@ -405,7 +405,9 @@ begin
         (GetArrayLength(ProcessLines) >= 1) then
         BootstrapProcessId := StrToIntDef(Trim(ProcessLines[0]), 0);
       ProcessWaitCycles := ProcessWaitCycles + 1;
-      if ProcessWaitCycles >= 200 then begin
+      { Allow up to two minutes: the first PowerShell start on a fresh Windows
+        installation (profile setup, antivirus scanning) can exceed ten seconds. }
+      if ProcessWaitCycles >= 2400 then begin
         SaveStringToFile(BootstrapCancelPath, 'cancel', False);
         BootstrapCancelRequested := True;
         Result := 'The Leadroom setup helper did not start correctly.' + #13#10 + #13#10 +

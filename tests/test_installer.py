@@ -61,6 +61,8 @@ def test_inno_setup_defines_install_and_uninstall_workflows() -> None:
     assert "-ProcessPath" in definition
     assert "IsProcessRunning(BootstrapProcessId)" in definition
     assert "stopped unexpectedly" in definition
+    # Fresh Windows installs can take well over ten seconds to start PowerShell.
+    assert "ProcessWaitCycles >= 2400" in definition
 
 
 def test_bootstrap_long_running_children_are_cancellable() -> None:
