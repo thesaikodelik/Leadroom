@@ -444,3 +444,12 @@ class ScraperPipelineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_scrapegraphai_telemetry_is_disabled() -> None:
+    """Page content and URLs must never be sent to ScrapeGraphAI's telemetry service."""
+    from scrapegraphai.telemetry import telemetry
+
+    import app.scraper  # noqa: F401
+
+    assert telemetry.is_telemetry_enabled() is False

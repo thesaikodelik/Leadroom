@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import ValidationError
 from scrapegraphai.graphs import SmartScraperGraph
+from scrapegraphai.telemetry import disable_telemetry
 
 from app.config import ScraperConfig
 from app.enrichment import HtmlFetcher, apply_enrichment, enrich_public_pages
@@ -12,6 +13,11 @@ from app.filters import same_business_domain
 from app.models import LeadExtraction
 from app.normalizer import normalize_lead
 from app.parser import parse_model_output
+
+# ScrapeGraphAI otherwise uploads each page's URL, content, prompt and model
+# response to its telemetry service. Its SCRAPEGRAPHAI_TELEMETRY_ENABLED variable
+# is not honoured, so switch it off explicitly. Leadroom keeps that data local.
+disable_telemetry()
 
 LEAD_PROMPT = """
 Extract public B2B lead information from this small business website.

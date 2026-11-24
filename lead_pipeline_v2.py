@@ -6,6 +6,12 @@ import pandas as pd
 import tldextract
 from ddgs import DDGS
 from scrapegraphai.graphs import SmartScraperGraph
+from scrapegraphai.telemetry import disable_telemetry
+
+# ScrapeGraphAI otherwise uploads each page's URL, content, prompt and model
+# response to its telemetry service. Its SCRAPEGRAPHAI_TELEMETRY_ENABLED variable
+# is not honoured, so switch it off explicitly. Leadroom keeps that data local.
+disable_telemetry()
 
 
 MODEL = "ollama/llama3.2:3b"
