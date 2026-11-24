@@ -239,7 +239,7 @@ npm run dev --prefix frontend
 Install [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install JRSoftware.InnoSetup`), then:
 
 ```powershell
-.\scripts\build-release.ps1 -Version 0.1.1
+.\scripts\build-release.ps1 -Version 0.1.2
 ```
 
 This writes `Leadroom-Setup.exe`, `Leadroom-Portable.zip` and `checksums.txt` to `dist\`.

@@ -243,7 +243,7 @@ npm run dev --prefix frontend
 <div dir="ltr">
 
 ```powershell
-.\scripts\build-release.ps1 -Version 0.1.1
+.\scripts\build-release.ps1 -Version 0.1.2
 ```
 
 </div>
