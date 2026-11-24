@@ -19,7 +19,13 @@ This document records the source-publication audit updated on 23 July 2026. It i
 
 ## Release Decision
 
-The source repository may be published under Leadroom's MIT licence while retaining third-party notices. Public binary distribution remains blocked until the `html2text` path is removed or replaced, or the complete GPL distribution obligations have been reviewed and implemented. No installer or portable GitHub Release should be published before that decision is recorded.
+Updated on 24 November 2026: binary releases are published under the GPL route.
+
+- The source repository is published under Leadroom's MIT licence with third-party notices.
+- The Windows installer and portable build bundle `html2text` (GPL-3.0-or-later), so those binaries as a whole are distributed under GPL-3.0-or-later terms. MIT and the other bundled licences (including psycopg's LGPL-3.0) are compatible with that.
+- Every binary release ships the GPL text (`licenses/GPL-3.0.txt`), `THIRD_PARTY_NOTICES.md`, and a generated `THIRD_PARTY_LICENSES.txt` with the licence text of each bundled Python and frontend package.
+- Each GitHub Release is tagged, and the release notes link to the source at that tag as the complete corresponding source.
+- Known gap: `langchain-community`, `minify_html`, `primp`, `proxy_tools`, and `tokenizers` ship no licence file in their wheels. `THIRD_PARTY_LICENSES.txt` records their declared licence and source; add the upstream texts when they become available.
 
 ## Re-run Before Every Binary Release
 

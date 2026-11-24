@@ -65,6 +65,10 @@ The smoke test temporarily backs up the current Leadroom bootstrap folder, silen
 
 The cancellation test begins a model download in an isolated folder, activates the installer's `Cancel setup` button, and verifies that Setup exits unsuccessfully, the bootstrap process stops, and no application executable remains installed.
 
-## Publication Blockers
+## Publishing a Release
 
-Do not upload these artifacts to a public GitHub Release yet. Complete the clean Windows 10/11 matrix, test a fresh Full Local import, add CI artifact generation, and resolve the binary-distribution issue recorded in `DEPENDENCY_LICENSES.md` first.
+1. Run the **Installer clean-machine test** workflow and confirm both jobs pass.
+2. Build with `scripts/build-release.ps1 -Version <version>`; it regenerates `THIRD_PARTY_LICENSES.txt`.
+3. Tag the commit `v<version>` and attach `Leadroom-Setup.exe`, `Leadroom-Portable.zip`, and `checksums.txt` to a GitHub Release whose notes link to the source at that tag.
+
+The licensing basis for binary releases is recorded in `DEPENDENCY_LICENSES.md`. A fresh Full Local import on a clean machine has not been tested yet.

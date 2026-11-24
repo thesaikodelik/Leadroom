@@ -10,6 +10,10 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/thesaikodelik/Leadroom/releases/latest/download/Leadroom-Setup.exe"><img src="https://img.shields.io/badge/download-Leadroom--Setup.exe-c2410c?style=for-the-badge&logo=windows11&logoColor=white" alt="Download Leadroom for Windows"></a>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078d4?logo=windows11&logoColor=white" alt="Windows 10 and 11">
   <img src="https://img.shields.io/badge/status-pre--release-f59e0b" alt="Pre-release">
   <img src="https://img.shields.io/badge/AI-local%20with%20Ollama-1f1f1f?logo=ollama&logoColor=white" alt="Local AI with Ollama">
@@ -145,9 +149,10 @@ own evidence; **you approve every message** before Leadroom sends it through you
 
 ## 📦 Install
 
-Leadroom is a **pre-release**. There is no published download yet: binary releases wait for the
-licence review in [docs/DEPENDENCY_LICENSES.md](docs/DEPENDENCY_LICENSES.md). You can build the
-installer yourself in a few minutes ([see below](#build)).
+1. Download **[Leadroom-Setup.exe](https://github.com/thesaikodelik/Leadroom/releases/latest/download/Leadroom-Setup.exe)** from the
+   [latest release](https://github.com/thesaikodelik/Leadroom/releases/latest).
+2. Run it and follow the steps. Keep the recommended components ticked on a new PC.
+3. Open **Leadroom** from the Start menu when Setup finishes.
 
 The installer is made for a **brand-new PC**. It installs for your account only, needs **no
 administrator rights**, and offers to set up everything Leadroom depends on:
@@ -159,7 +164,8 @@ administrator rights**, and offers to set up everything Leadroom depends on:
 | **`llama3.2:3b` model** | Downloads it (about 2 GB) into the folder you choose, with live progress. |
 | **Full Local map index** | Optional, for powerful PCs: WSL2, PostgreSQL and OpenStreetMap data. |
 
-Every step can be cancelled and existing installs are reused. The installer has been tested on
+Prefer no installer? The release also has **Leadroom-Portable.zip**, which needs WebView2 and
+Ollama to be installed already. Every step of Setup can be cancelled and existing installs are reused. The installer has been tested on
 fresh Windows machines, both with and without Windows Package Manager.
 
 > New, unsigned programs may get *"Windows protected your PC"*: choose **More info → Run anyway**.
@@ -168,7 +174,8 @@ fresh Windows machines, both with and without Windows Package Manager.
 Uninstall from **Settings → Apps**. Setup asks whether to keep your workspace and downloaded models.
 
 **Requirements:** Windows 10 or 11 (64-bit), about 10 GB free for Ollama and the default model, and
-an internet connection. Leadroom is currently tuned for **UK** businesses (phone formats and the map index).
+an internet connection. Leadroom is a **pre-release** and is currently tuned for **UK** businesses (phone formats
+and the map index).
 
 <a id="privacy"></a>
 
@@ -328,6 +335,8 @@ Issues and pull requests are welcome; read [CONTRIBUTING.md](CONTRIBUTING.md) an
 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) first, and keep real data, databases and credentials out
 of commits.
 
-Leadroom is released under the [MIT License](LICENSE). ScrapeGraphAI and OpenStreetMap data keep
-their own licences; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [NOTICE.md](NOTICE.md) and
+Leadroom's source code is released under the [MIT License](LICENSE). The Windows downloads bundle
+[html2text](https://github.com/Alir3z4/html2text), so they are distributed under the
+[GPL-3.0-or-later](licenses/GPL-3.0.txt) as a whole, with the licence of every bundled package in
+`THIRD_PARTY_LICENSES.txt`. ScrapeGraphAI and OpenStreetMap data keep their own licences; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), [NOTICE.md](NOTICE.md) and
 the [dependency licence review](docs/DEPENDENCY_LICENSES.md).

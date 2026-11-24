@@ -66,6 +66,8 @@ Source: "..\dist\Leadroom.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\assets\leadroom-icon.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\build\THIRD_PARTY_LICENSES.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\licenses\GPL-3.0.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 Source: "..\docs\DEPENDENCY_LICENSES.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\scripts\install-bootstrap.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "..\scripts\clean-install-state.ps1"; DestDir: "{app}\scripts"; Flags: ignoreversion

@@ -20,6 +20,16 @@ Leadroom optionally uses [Scrapling](https://github.com/D4Vinci/Scrapling) as an
 - Upstream license: BSD 3-Clause
 - Role in Leadroom: TLS-aware fallback fetching for public business pages
 
+## html2text
+
+ScrapeGraphAI depends on [html2text](https://github.com/Alir3z4/html2text), which is bundled into the Windows builds.
+
+- Upstream repository: <https://github.com/Alir3z4/html2text>
+- Upstream license: GPL-3.0-or-later ([licenses/GPL-3.0.txt](licenses/GPL-3.0.txt))
+- Role in Leadroom: HTML-to-text conversion inside ScrapeGraphAI
+
+Because the Windows installer and portable build include html2text, those binaries as a whole are distributed under the terms of the GNU General Public License, version 3 or later. Leadroom's own source code remains available under the MIT License, which is compatible with the GPL. The complete corresponding source for each binary release is this repository at the release's tag, together with the published sources of the dependencies listed in `THIRD_PARTY_LICENSES.txt`.
+
 ## OpenStreetMap and Geofabrik
 
 The optional local discovery engine can download OpenStreetMap extracts provided by Geofabrik.
@@ -32,4 +42,4 @@ OpenStreetMap data is Copyright OpenStreetMap contributors and is available unde
 
 ## Other Dependencies
 
-Python and frontend dependencies are declared in `pyproject.toml`, `requirements.txt`, and `frontend/package-lock.json`. The current audit and binary-distribution blocker are recorded in `docs/DEPENDENCY_LICENSES.md`. Distributors must repeat that audit and include the applicable licence texts with each release artifact.
+Python and frontend dependencies are declared in `pyproject.toml`, `requirements.txt`, and `frontend/package-lock.json`. The current audit is recorded in `docs/DEPENDENCY_LICENSES.md`. Release builds generate `THIRD_PARTY_LICENSES.txt` (with `scripts/collect_licenses.py`), which reproduces the licence text of every bundled package and ships next to the application.

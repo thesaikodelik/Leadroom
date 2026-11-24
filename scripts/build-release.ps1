@@ -19,6 +19,9 @@ if (-not (Test-Path (Join-Path $dist "Leadroom.exe"))) {
 }
 
 New-Item -ItemType Directory -Force -Path $dist, $build | Out-Null
+$licences = Join-Path $build "THIRD_PARTY_LICENSES.txt"
+& (Join-Path $root ".venv\Scripts\python.exe") (Join-Path $PSScriptRoot "collect_licenses.py") $licences
+if ($LASTEXITCODE -ne 0) { throw "Could not collect third-party licences." }
 if (Test-Path -LiteralPath $portableStage) {
     $resolved = (Resolve-Path -LiteralPath $portableStage).Path
     if (-not $resolved.StartsWith($build, [StringComparison]::OrdinalIgnoreCase)) {
@@ -30,6 +33,9 @@ New-Item -ItemType Directory -Force -Path $portableStage | Out-Null
 Copy-Item (Join-Path $dist "Leadroom.exe") $portableStage
 Copy-Item (Join-Path $root "LICENSE") $portableStage
 Copy-Item (Join-Path $root "THIRD_PARTY_NOTICES.md") $portableStage
+Copy-Item $licences $portableStage
+New-Item -ItemType Directory -Force -Path (Join-Path $portableStage "licenses") | Out-Null
+Copy-Item (Join-Path $root "licenses\GPL-3.0.txt") (Join-Path $portableStage "licenses")
 Copy-Item (Join-Path $root "README.md") $portableStage
 if (Test-Path -LiteralPath $portableArchive) { Remove-Item -LiteralPath $portableArchive -Force }
 Compress-Archive -Path (Join-Path $portableStage "*") -DestinationPath $portableArchive -CompressionLevel Optimal

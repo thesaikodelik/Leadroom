@@ -10,6 +10,10 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/thesaikodelik/Leadroom/releases/latest/download/Leadroom-Setup.exe"><img src="https://img.shields.io/badge/download-Leadroom--Setup.exe-c2410c?style=for-the-badge&logo=windows11&logoColor=white" alt="دانلود Leadroom برای ویندوز"></a>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078d4?logo=windows11&logoColor=white" alt="ویندوز ۱۰ و ۱۱">
   <img src="https://img.shields.io/badge/status-pre--release-f59e0b" alt="پیش‌انتشار">
   <img src="https://img.shields.io/badge/AI-local%20with%20Ollama-1f1f1f?logo=ollama&logoColor=white" alt="هوش مصنوعی محلی با Ollama">
@@ -142,7 +146,11 @@
 
 ## 📦 نصب
 
-برنامه هنوز در مرحلهٔ **پیش‌انتشار** است و نسخهٔ آمادهٔ دانلود ندارد. انتشار فایل نصب منتظر بررسی مجوزهایی است که در [docs/DEPENDENCY_LICENSES.md](docs/DEPENDENCY_LICENSES.md) آمده. تا آن موقع می‌توانید فایل نصب را در چند دقیقه خودتان بسازید ([راهنما پایین‌تر است](#build)).
+۱. فایل **[Leadroom-Setup.exe](https://github.com/thesaikodelik/Leadroom/releases/latest/download/Leadroom-Setup.exe)** را از [آخرین نسخهٔ منتشرشده](https://github.com/thesaikodelik/Leadroom/releases/latest) دانلود کنید.
+
+۲. اجرایش کنید و مرحله‌ها را جلو بروید. روی کامپیوتر تازه، گزینه‌های پیشنهادی را تیک‌خورده نگه دارید.
+
+۳. وقتی نصب تمام شد، **Leadroom** را از منوی Start باز کنید.
 
 فایل نصب برای **کامپیوتری کاملاً تازه** ساخته شده. فقط برای حساب کاربری شما نصب می‌شود، **دسترسی ادمین نمی‌خواهد** و پیشنهاد می‌دهد هر چیزی را که Leadroom لازم دارد خودش آماده کند:
 
@@ -153,13 +161,13 @@
 | **مدل `llama3.2:3b`** | آن را (حدود ۲ گیگابایت) در پوشه‌ای که انتخاب کرده‌اید دانلود می‌کند و پیشرفتش را نشان می‌دهد. |
 | **نقشهٔ محلی کامل** | اختیاری و برای سیستم‌های قوی: WSL2، PostgreSQL و داده‌های OpenStreetMap. |
 
-هر مرحله را می‌شود لغو کرد و چیزهایی که از قبل نصب‌اند دوباره نصب نمی‌شوند. فایل نصب روی ویندوزهای تازه، هم با Windows Package Manager و هم بدون آن، آزموده شده است.
+اگر اینستالر نمی‌خواهید، در همان صفحه فایل **Leadroom-Portable.zip** هم هست؛ برای آن باید WebView2 و Ollama از قبل نصب باشند. هر مرحلهٔ نصب را می‌شود لغو کرد و چیزهایی که از قبل نصب‌اند دوباره نصب نمی‌شوند. فایل نصب روی ویندوزهای تازه، هم با Windows Package Manager و هم بدون آن، آزموده شده است.
 
 > ویندوز برای برنامه‌های تازه و بدون امضا ممکن است پیغام *«Windows protected your PC»* نشان بدهد. روی **More info** و بعد **Run anyway** بزنید. کد Leadroom باز است؛ می‌توانید خطبه‌خطش را بخوانید یا خودتان بسازیدش.
 
 برای حذف، از **Settings ← Apps** استفاده کنید. فایل حذف می‌پرسد فضای کاری و مدل‌های دانلودشده نگه داشته شوند یا نه.
 
-**پیش‌نیازها:** ویندوز ۱۰ یا ۱۱ (۶۴ بیتی)، حدود ۱۰ گیگابایت فضای خالی برای Ollama و مدل پیش‌فرض، و اینترنت. Leadroom فعلاً برای کسب‌وکارهای **بریتانیا** تنظیم شده است (قالب شماره‌تلفن‌ها و نقشهٔ محلی).
+**پیش‌نیازها:** ویندوز ۱۰ یا ۱۱ (۶۴ بیتی)، حدود ۱۰ گیگابایت فضای خالی برای Ollama و مدل پیش‌فرض، و اینترنت. این برنامه هنوز **پیش‌انتشار** است و فعلاً برای کسب‌وکارهای **بریتانیا** تنظیم شده است (قالب شماره‌تلفن‌ها و نقشهٔ محلی).
 
 <a id="privacy"></a>
 
@@ -335,6 +343,6 @@ FastAPI on 127.0.0.1 ---> SQLite: runs, repository, compliance
 
 گزارش مشکل (Issue) و Pull Request با کمال میل پذیرفته می‌شود. قبلش [CONTRIBUTING.md](CONTRIBUTING.md) و [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) را بخوانید و داده‌های واقعی، پایگاه‌داده و اطلاعات ورود را commit نکنید.
 
-این پروژه تحت [مجوز MIT](LICENSE) منتشر شده است. ScrapeGraphAI و داده‌های OpenStreetMap مجوز خودشان را دارند؛ [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)، [NOTICE.md](NOTICE.md) و [بررسی مجوز وابستگی‌ها](docs/DEPENDENCY_LICENSES.md) را ببینید.
+کد این پروژه تحت [مجوز MIT](LICENSE) منتشر شده است. فایل‌های دانلودی ویندوز کتابخانهٔ [html2text](https://github.com/Alir3z4/html2text) را هم دارند، برای همین کل آن‌ها تحت [GPL-3.0 یا بالاتر](licenses/GPL-3.0.txt) منتشر می‌شوند و متن مجوز همهٔ کتابخانه‌های داخلشان در فایل `THIRD_PARTY_LICENSES.txt` آمده است. ScrapeGraphAI و داده‌های OpenStreetMap مجوز خودشان را دارند؛ [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)، [NOTICE.md](NOTICE.md) و [بررسی مجوز وابستگی‌ها](docs/DEPENDENCY_LICENSES.md) را ببینید.
 
 </div>
