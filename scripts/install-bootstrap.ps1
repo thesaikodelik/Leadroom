@@ -205,6 +205,9 @@ function Invoke-CancellableProcess(
             -WindowStyle Hidden `
             -PassThru
     }
+    # Windows PowerShell only reports ExitCode for a process whose handle was opened
+    # before it exited; without this, a redirected process that succeeded reads as "".
+    $null = $process.Handle
     try {
         while (-not $process.WaitForExit(250)) {
             Assert-InstallerNotCancelled

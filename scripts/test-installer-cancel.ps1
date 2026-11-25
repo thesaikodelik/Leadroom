@@ -91,6 +91,7 @@ try {
         "/LOG=$(Join-Path $build 'installer-cancel.log')"
     )
     $setup = Start-Process -FilePath $SetupPath -ArgumentList $arguments -PassThru
+    $null = $setup.Handle  # ExitCode stays empty unless the handle is opened first.
     $deadline = (Get-Date).AddMinutes(2)
     $button = [IntPtr]::Zero
     while ((Get-Date) -lt $deadline -and -not $setup.HasExited) {

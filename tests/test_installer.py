@@ -80,6 +80,15 @@ def test_bootstrap_long_running_children_are_cancellable() -> None:
     assert "Assert-Capacity $ubuntuStorage 30GB" in definition
 
 
+def test_bootstrap_reads_exit_codes_of_redirected_children() -> None:
+    # Windows PowerShell leaves ExitCode empty for a Start-Process child whose handle
+    # was not opened before it exited, so a child that succeeded looked like a failure.
+    definition = (ROOT / "scripts" / "install-bootstrap.ps1").read_text(encoding="utf-8")
+    handle = definition.index("$null = $process.Handle")
+    assert definition.index("-RedirectStandardOutput $outputPath") < handle
+    assert handle < definition.index("while (-not $process.WaitForExit(250))")
+
+
 @pytest.mark.parametrize(
     "script_name",
     ["setup-local-data.ps1", "import-osm.ps1", "setup-local-updates.ps1"],
