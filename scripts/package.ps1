@@ -21,7 +21,16 @@ Push-Location (Join-Path $root "frontend")
 try { & npm run build } finally { Pop-Location }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-& (Join-Path $root ".venv\Scripts\python.exe") -m PyInstaller `
+# A package missing from .venv is not a build error: PyInstaller just leaves it out and
+# Leadroom.exe fails at startup. Refuse to build from an incomplete environment.
+$python = Join-Path $root ".venv\Scripts\python.exe"
+& $python -m pip check
+if ($LASTEXITCODE -ne 0) { throw "The build environment has missing or broken packages; run: .venv\Scripts\python.exe -m pip install -r requirements.txt" }
+Push-Location $root
+try { & $python -c "import app.api, run_desktop" } finally { Pop-Location }
+if ($LASTEXITCODE -ne 0) { throw "Leadroom does not import in the build environment." }
+
+& $python -m PyInstaller `
     --noconfirm `
     --clean `
     --onefile `
@@ -45,4 +54,6 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     --collect-all apify_fingerprint_datapoints `
     --collect-all scrapegraphai `
     run_desktop.py
-exit $LASTEXITCODE
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+& (Join-Path $PSScriptRoot "smoke-test-exe.ps1") -Executable (Join-Path $root "dist\Leadroom.exe") -Version $Version
