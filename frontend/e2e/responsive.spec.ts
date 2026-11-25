@@ -59,3 +59,38 @@ test('mobile navigation traps focus, closes with Escape, and restores the trigge
   await expect(page.locator('#primary-navigation')).not.toHaveClass(/sidebar-open/)
   await expect(trigger).toBeFocused()
 })
+
+test('run builder cards keep their titles, badges and checks apart at every width', async ({ page }) => {
+  await mockWorkspaceData(page)
+  for (const width of [1440, 1366, 1300, 1216, 1100, 1024, 960, 900, 768, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/new')
+    await page.locator('details.advanced-settings > summary').click()
+    await expect(page.locator('.source-option').first()).toBeVisible()
+    const problems = await page.evaluate(() => {
+      const found: string[] = []
+      const overlaps = (a: DOMRect, b: DOMRect) => a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1
+      const inside = (inner: DOMRect, outer: DOMRect) => inner.left >= outer.left - 1 && inner.right <= outer.right + 1
+      const cards = [
+        ...Array.from(document.querySelectorAll<HTMLElement>('.source-option')).map((card) => ({ card, mark: card.querySelector(':scope > i') })),
+        ...Array.from(document.querySelectorAll<HTMLElement>('.crawl-option')).map((card) => ({ card, mark: card.querySelector('.radio-mark') })),
+      ]
+      for (const { card, mark } of cards) {
+        const box = card.getBoundingClientRect()
+        const title = card.querySelector('strong')
+        if (!title || !mark) continue
+        const label = title.firstChild?.textContent?.trim() ?? card.className
+        const range = document.createRange()
+        range.selectNodeContents(title.firstChild!)
+        const words = range.getBoundingClientRect()
+        if (overlaps(words, mark.getBoundingClientRect())) found.push(`${label}: title runs under its check mark`)
+        if (title.scrollWidth > title.clientWidth + 1) found.push(`${label}: title is clipped`)
+        const badge = title.querySelector('small')
+        if (badge && !inside(badge.getBoundingClientRect(), box)) found.push(`${label}: badge leaves the card`)
+        if (badge && overlaps(badge.getBoundingClientRect(), mark.getBoundingClientRect())) found.push(`${label}: badge covers the check mark`)
+      }
+      return found
+    })
+    expect(problems, `run builder at ${width}px`).toEqual([])
+  }
+})

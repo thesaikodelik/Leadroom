@@ -68,6 +68,7 @@ import { applyTheme, isThemeId, type ThemeId } from './theme'
 import './App.css'
 import './Brushstroke.css'
 import './Themes.css'
+import './Responsive.css'
 
 const statusLabels: Record<string, string> = {
   created: 'Created', ready: 'Ready', queued: 'Queued', processing: 'Enriching',
