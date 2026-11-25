@@ -157,6 +157,7 @@ export interface RunCreate {
   discovery_mode: DiscoveryMode
   crawl_mode: 'quick' | 'deep' | 'exhaustive'
   advanced_fetching: boolean
+  ai_extraction: 'auto' | 'off'
 }
 
 export interface WorkspaceSettings {

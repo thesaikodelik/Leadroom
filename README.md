@@ -179,6 +179,11 @@ Uninstall from **Settings → Apps**. Setup asks whether to keep your workspace 
 an internet connection. Leadroom is a **pre-release** and is currently tuned for **UK** businesses (phone formats
 and the map index).
 
+**No graphics card?** Leadroom still works. The AI step, which reads each site's business type and services,
+runs on the processor and can take about a minute per site. You can turn it off with **Read websites with AI**
+in a run's options, or skip Ollama in Setup. Without it, Leadroom still collects emails, phone numbers and
+contact pages from each site, and the offline map search needs no AI at all.
+
 <a id="privacy"></a>
 
 ## 🔒 Private by design

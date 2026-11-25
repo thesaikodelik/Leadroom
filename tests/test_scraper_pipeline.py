@@ -10,6 +10,95 @@ from app.scraper import scrape_business_site
 
 
 class ScraperPipelineTests(unittest.TestCase):
+    def setUp(self):
+        # Tests must not depend on whether Ollama runs on this computer.
+        model_check = patch("app.scraper.local_model_problem", return_value="")
+        model_check.start()
+        self.addCleanup(model_check.stop)
+
+    def _fetcher(self, fetcher_class, url):
+        fetcher_class.return_value.fetch.return_value.html = "<html></html>"
+        fetcher_class.return_value.fetch.return_value.url = url
+
+    @patch("app.scraper.enrich_public_pages")
+    @patch("app.scraper.HtmlFetcher")
+    @patch("app.scraper.SmartScraperGraph")
+    def test_ai_off_keeps_rule_based_details_without_calling_the_model(
+        self, graph_class, fetcher_class, enrich
+    ):
+        self._fetcher(fetcher_class, "https://salon.example/")
+        enrich.return_value = (
+            {"business_name": "Rule Salon", "generic_email": "info@salon.example", "emails": ["info@salon.example"]},
+            {
+                "business_name": {"value": "Rule Salon", "source_url": "https://salon.example/", "method": "json-ld"},
+                "generic_email": {"value": "info@salon.example", "source_url": "https://salon.example/contact", "method": "mailto"},
+            },
+            [],
+        )
+        config = ScraperConfig(niche="salons", location="London", ai_extraction="off")
+
+        lead = scrape_business_site("https://salon.example/", config)
+
+        graph_class.assert_not_called()
+        self.assertEqual(lead["ai_extraction"], "skipped")
+        self.assertEqual(lead["business_name"], "Rule Salon")
+        self.assertIn("info@salon.example", lead["emails"])
+        self.assertTrue(lead["is_valid_lead"])
+
+    @patch("app.scraper.enrich_public_pages", return_value=({"phone": "+44 20 7946 0000"}, {}, []))
+    @patch("app.scraper.HtmlFetcher")
+    @patch("app.scraper.SmartScraperGraph")
+    def test_missing_ollama_falls_back_instead_of_failing(self, graph_class, fetcher_class, _enrich):
+        self._fetcher(fetcher_class, "https://salon.example/")
+        config = ScraperConfig(niche="salons", location="London")
+        with patch("app.scraper.local_model_problem", return_value="Ollama is not running."):
+            lead = scrape_business_site("https://salon.example/", config)
+
+        graph_class.assert_not_called()
+        self.assertEqual(lead["ai_skipped_reason"], "Ollama is not running.")
+        self.assertEqual(lead["phone"], "+44 20 7946 0000")
+
+    @patch("app.scraper.enrich_public_pages", return_value=({}, {}, []))
+    @patch("app.scraper.HtmlFetcher")
+    @patch("app.scraper.SmartScraperGraph")
+    def test_model_error_falls_back_for_that_site(self, graph_class, fetcher_class, _enrich):
+        self._fetcher(fetcher_class, "https://salon.example/")
+        graph_class.return_value.run.side_effect = RuntimeError("connection refused")
+        config = ScraperConfig(niche="salons", location="London")
+
+        lead = scrape_business_site("https://salon.example/", config)
+
+        self.assertEqual(lead["ai_extraction"], "skipped")
+        self.assertIn("connection refused", lead["ai_skipped_reason"])
+
+    @patch("app.scraper.enrich_public_pages", return_value=({}, {}, []))
+    @patch("app.scraper.HtmlFetcher")
+    @patch("app.scraper.SmartScraperGraph")
+    def test_slow_model_is_abandoned_after_the_timeout(self, graph_class, fetcher_class, _enrich):
+        import threading
+
+        self._fetcher(fetcher_class, "https://salon.example/")
+        release = threading.Event()
+        graph_class.return_value.run.side_effect = lambda: release.wait(5)
+        config = ScraperConfig(niche="salons", location="London")
+        from app import scraper
+
+        original = scraper._run_with_timeout
+        with patch("app.scraper._run_with_timeout", lambda work, _t, cancel=None: original(work, 0.2, cancel)):
+            lead = scrape_business_site("https://salon.example/", config)
+        release.set()
+
+        self.assertIn("took longer", lead["ai_skipped_reason"])
+
+    @patch("app.scraper.enrich_public_pages", return_value=({}, {}, []))
+    @patch("app.scraper.HtmlFetcher")
+    def test_ai_off_still_rejects_an_unrelated_redirect(self, fetcher_class, _enrich):
+        self._fetcher(fetcher_class, "https://platform.example/")
+        config = ScraperConfig(niche="salons", location="London", ai_extraction="off")
+
+        with self.assertRaisesRegex(ValueError, "unrelated domain"):
+            scrape_business_site("https://salon.example/", config)
+
     @patch("app.scraper.enrich_public_pages", return_value=({}, {}, []))
     @patch("app.scraper.HtmlFetcher")
     @patch("app.scraper.SmartScraperGraph")
@@ -453,3 +542,19 @@ def test_scrapegraphai_telemetry_is_disabled() -> None:
     import app.scraper  # noqa: F401
 
     assert telemetry.is_telemetry_enabled() is False
+
+
+def test_site_name_reads_the_home_page_name_without_the_model():
+    from bs4 import BeautifulSoup
+
+    from app.enrichment import site_name
+
+    cases = {
+        '<meta property="og:site_name" content="Fortnum &amp; Mason"><title>Shop</title>': "Fortnum & Mason",
+        "<title>Bettys | Café Tea Rooms</title>": "Bettys",
+        "<title>Home - Joe's Barbers</title>": "Joe's Barbers",
+        "<title>Welcome to Smith Dental</title>": "Smith Dental",
+        "<title>Home</title>": "",
+    }
+    for html, expected in cases.items():
+        assert site_name(BeautifulSoup(html, "lxml")) == expected

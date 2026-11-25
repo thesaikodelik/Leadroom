@@ -198,6 +198,9 @@ function Shell() {
       else previous.focus()
     }
   }, [menuOpen, mobileNavigation])
+  // On narrow windows the sidebar, and the update card in it, is folded away.
+  const updates = useQuery({ queryKey: ['updates'], queryFn: api.updates, staleTime: 30_000 })
+  const updateWaiting = updateNeedsAttention(updates.data)
   const healthLabel = health.isPending ? 'Checking API' : health.isError ? 'API needs attention' : 'Local API ready'
   const healthClass = health.isPending ? 'health-checking' : health.isError ? 'health-down' : ''
   const navItems = [
@@ -210,7 +213,7 @@ function Shell() {
   return (
     <div className="shell">
       <header className="topbar">
-        <button ref={menuButton} className="icon-button mobile-menu" onClick={() => setMenuOpen(!menuOpen)} aria-label="Toggle navigation" aria-expanded={menuOpen} aria-controls="primary-navigation"><Menu /></button>
+        <button ref={menuButton} className="icon-button mobile-menu" onClick={() => setMenuOpen(!menuOpen)} aria-label={updateWaiting ? 'Toggle navigation, update available' : 'Toggle navigation'} aria-expanded={menuOpen} aria-controls="primary-navigation"><Menu />{updateWaiting && <i className="menu-update-dot" aria-hidden="true" />}</button>
         <NavLink className="brand mobile-brand" to="/runs"><BrandMark logo={logo} name={brandName} /><span>{brandName}</span></NavLink>
         <div className={`health ${healthClass}`} role="status" title={healthLabel}><span />{healthLabel}</div>
       </header>
@@ -255,6 +258,11 @@ function Shell() {
 }
 
 // Shown in the sidebar when a newer Leadroom is out: download it, then restart into it.
+function updateNeedsAttention(data?: UpdateStatus) {
+  if (!data || data.phase === 'idle') return false
+  return !data.postponed || data.phase === 'downloading' || data.phase === 'ready'
+}
+
 function UpdateCard() {
   const queryClient = useQueryClient()
   const [restarting, setRestarting] = useState(false)
@@ -268,8 +276,7 @@ function UpdateCard() {
   const postpone = useMutation({ mutationFn: api.updatePostpone, onSuccess: store })
   const install = useMutation({ mutationFn: api.updateInstall, onMutate: () => setRestarting(true), onSuccess: store, onError: () => setRestarting(false) })
   const data = status.data
-  if (!data || data.phase === 'idle') return null
-  if (data.postponed && data.phase !== 'downloading' && data.phase !== 'ready') return null
+  if (!data || !updateNeedsAttention(data)) return null
   const percent = Math.round(data.progress * 100)
   const openPage = () => { void api.updateOpenPage() }
   return <div className={`update-card update-${data.phase}`} role="status" aria-live="polite">
@@ -422,9 +429,10 @@ function NewRunPage() {
   const navigate = useNavigate()
   const createController = useRef<AbortController | null>(null)
   const [runTimestamp] = useState(() => new Date())
-  const [form, setForm] = useState<RunCreate>({ niche: '', location: 'London UK', max_results_per_query: 100, max_sites: 500, model: 'ollama/llama3.2:3b', run_name: buildRunName('', runTimestamp), delay_seconds: 1, search_provider: 'hybrid', discovery_mode: 'new_only', crawl_mode: 'deep', advanced_fetching: true })
+  const [form, setForm] = useState<RunCreate>({ niche: '', location: 'London UK', max_results_per_query: 100, max_sites: 500, model: 'ollama/llama3.2:3b', run_name: buildRunName('', runTimestamp), delay_seconds: 1, search_provider: 'hybrid', discovery_mode: 'new_only', crawl_mode: 'deep', advanced_fetching: true, ai_extraction: 'auto' })
   const workspaceSettings = useQuery({ queryKey: ['settings'], queryFn: api.settings, staleTime: 30_000 })
   const localData = useQuery({ queryKey: ['local-data-status'], queryFn: api.localDataStatus, staleTime: 15_000 })
+  const ollama = useQuery({ queryKey: ['ollama-models'], queryFn: api.ollamaModels, retry: false, staleTime: 30_000 })
   const deferredNiche = useDebouncedValue(form.niche.trim())
   const deferredLocation = useDebouncedValue(form.location.trim())
   const history = useQuery({
@@ -496,6 +504,10 @@ function NewRunPage() {
           <label className="adaptive-fetching span-2">
             <span><strong>Adaptive fetching</strong><small>Retry blocked or browser-sensitive sites with Scrapling before opening a browser.</small></span>
             <input type="checkbox" role="switch" checked={form.advanced_fetching} onChange={(event) => set('advanced_fetching', event.target.checked)} />
+          </label>
+          <label className="adaptive-fetching span-2">
+            <span><strong>Read websites with AI</strong><small>{aiExtractionNote(form.ai_extraction, effectiveModel, ollama.isError, ollama.data?.models)}</small></span>
+            <input type="checkbox" role="switch" checked={form.ai_extraction === 'auto'} onChange={(event) => set('ai_extraction', event.target.checked ? 'auto' : 'off')} />
           </label>
           <div className="unified-discovery span-2"><div className="unified-title"><Layers3 /><span><strong>{sourceLabel}</strong><small>{form.search_provider === 'osm_local' ? 'No overall limit. Continue in fast local batches from the same run.' : form.search_provider === 'auto' ? 'Live internet discovery without querying the local index.' : 'Local and internet results are deduplicated and merged.'}</small></span><em><Check />Selected</em></div></div>
           </div>
@@ -1382,3 +1394,15 @@ function EmptyState() {
 function formatDate(value?: string) { return value ? new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—' }
 
 export default Shell
+
+function aiExtractionNote(mode: RunCreate['ai_extraction'], model: string, ollamaDown: boolean, installed?: { name?: string; model?: string }[]) {
+  if (mode === 'off') return 'Off: contact details still come from each site; business type and services stay empty. Fastest on computers without a graphics card.'
+  const local = !model.includes('/') || model.startsWith('ollama/')
+  if (!local) return 'Reads business type and services with your hosted model. If it fails, the site keeps its contact details.'
+  const name = model.replace(/^ollama\//, '')
+  if (ollamaDown) return 'Ollama is not running, so sites will be read without AI. Contact details are still collected.'
+  if (installed && !installed.some((item) => [item.name, item.model].some((value) => value === name || value === `${name}:latest`))) {
+    return `${name} is not installed, so sites will be read without AI. Contact details are still collected.`
+  }
+  return 'Reads business type and services with the local model. Without a graphics card this can take about a minute per site; slow or failed sites keep their contact details.'
+}

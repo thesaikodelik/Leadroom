@@ -497,6 +497,9 @@ def extract_public_data(html: str, source_url: str) -> tuple[dict[str, Any], dic
     data: dict[str, Any] = {}
     evidence: dict[str, dict[str, str]] = {}
 
+    if not urlparse(source_url).path.strip("/"):
+        # The home page's own name, kept apart so a JSON-LD name from any page wins.
+        _set(data, evidence, "site_name", site_name(soup), source_url, "site-name")
     json_ld = _business_json_ld(soup)
     if json_ld:
         _set(data, evidence, "business_name", json_ld.get("name"), source_url, "json-ld")
@@ -719,6 +722,25 @@ def apply_enrichment(
     lead["lead_score"] = score_lead(lead)
     lead["lead_reason"] = explain_score(lead)
     return lead
+
+
+GENERIC_TITLE_PARTS = {"home", "homepage", "home page", "welcome", "index", "official site", "official website"}
+TITLE_SEPARATORS = re.compile(r"\s+[|–—:·•-]\s+|\s*\|\s*")
+
+
+def site_name(soup: BeautifulSoup) -> str:
+    """The business name a home page states about itself, without the model."""
+    for selector in ('meta[property="og:site_name"]', 'meta[name="application-name"]'):
+        tag = soup.select_one(selector)
+        value = " ".join(str(tag.get("content", "")).split()) if tag else ""
+        if 2 <= len(value) <= 80:
+            return value
+    title = " ".join(soup.title.get_text(" ").split()) if soup.title else ""
+    for part in TITLE_SEPARATORS.split(title):
+        part = re.sub(r"^welcome to\s+(the\s+)?", "", part.strip(), flags=re.I).strip()
+        if 2 <= len(part) <= 80 and part.lower() not in GENERIC_TITLE_PARTS:
+            return part
+    return ""
 
 
 def _business_json_ld(soup: BeautifulSoup) -> dict[str, Any] | None:

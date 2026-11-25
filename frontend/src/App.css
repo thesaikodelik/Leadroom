@@ -51,7 +51,8 @@
 .icon-button { width: 44px; height: 44px; padding: 0; display: inline-grid; place-items: center; border: 0; border-radius: 6px; color: var(--muted); background: transparent; cursor: pointer; text-decoration: none; transition: background-color .18s ease, color .18s ease; }
 .icon-button:hover { color: var(--ink); background: #edf1ee; }
 .icon-button svg { width: 18px; }
-.mobile-menu { display: none; margin-right: 8px; }
+.mobile-menu { display: none; margin-right: 8px; position: relative; }
+.menu-update-dot { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--coral, var(--amber)); box-shadow: 0 0 0 2px var(--surface, #fff); }
 .loading { min-height: 180px; padding: 24px; display: grid; align-content: center; gap: 12px; }
 .loading i { height: 16px; display: block; border-radius: 4px; background: linear-gradient(90deg, var(--line) 25%, var(--subtle) 50%, var(--line) 75%); background-position: 200% 0; background-size: 200% 100%; animation: loading-shimmer 1.35s ease-in-out infinite; }
 .loading i:nth-of-type(2) { width: 82%; }

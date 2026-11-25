@@ -88,6 +88,10 @@ class ScraperConfig(BaseModel):
     cache_ttl_hours: int = Field(default=168, ge=1, le=2160)
     advanced_fetching: bool = True
     browser_fallback: bool = True
+    # auto: read each site with the model, and keep the rule-based details when the
+    # model is missing, fails or is too slow. off: never call the model.
+    ai_extraction: str = Field(default="auto", pattern="^(auto|off)$")
+    ai_timeout_seconds: float = Field(default=180.0, ge=10, le=1800)
     database_path: Path = Field(default_factory=lambda: _data_path("lead_scraper.db"))
     reuse_existing_leads: bool = True
     discovery_mode: str = "new_only"

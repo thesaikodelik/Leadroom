@@ -329,8 +329,8 @@ begin
     'Recommended components are downloaded only with your approval. Existing installations are reused.',
     False, False);
   DependencyPage.Add('Install Microsoft Edge WebView2 Runtime if missing');
-  DependencyPage.Add('Install Ollama if missing');
-  DependencyPage.Add('Download the recommended llama3.2:3b model');
+  DependencyPage.Add('Install Ollama if missing (optional AI; Leadroom works without it)');
+  DependencyPage.Add('Download the llama3.2:3b model (about 2 GB; slow without a graphics card)');
   DependencyPage.Add('Download and prepare the Full Local OpenStreetMap stack');
   DependencyPage.Values[0] := ParamEnabled('INSTALL_WEBVIEW', True);
   DependencyPage.Values[1] := ParamEnabled('INSTALL_OLLAMA', True);

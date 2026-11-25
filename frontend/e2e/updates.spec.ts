@@ -1,10 +1,20 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 import { mockShell, mockWorkspaceData } from './run-fixture'
 
 const base = {
   current_version: '0.1.3', version: '0.1.4', page: 'https://github.com/thesaikodelik/Leadroom/releases/tag/v0.1.4',
   notes: '', progress: 0, error: '', postponed: false, installed: true, enabled: true,
+}
+
+// Narrow windows fold the sidebar away; the menu button then carries the update dot.
+async function openNavigationOnNarrowScreens(page: Page) {
+  const toggle = page.locator('.mobile-menu')
+  if (await toggle.isVisible()) {
+    await expect(toggle).toHaveAccessibleName('Toggle navigation, update available')
+    await expect(toggle.locator('.menu-update-dot')).toBeVisible()
+    await toggle.click()
+  }
 }
 
 test('an available update is downloaded and installed from the sidebar', async ({ page }) => {
@@ -24,6 +34,7 @@ test('an available update is downloaded and installed from the sidebar', async (
   })
 
   await page.goto('/runs')
+  await openNavigationOnNarrowScreens(page)
   const card = page.locator('.update-card')
   await expect(card).toContainText('Update available')
   await expect(card).toContainText('Leadroom 0.1.4 is ready to download.')
@@ -49,6 +60,7 @@ test('a postponed update stays out of the way and nothing shows when up to date'
   })
 
   await page.goto('/runs')
+  await openNavigationOnNarrowScreens(page)
   await page.locator('.update-card').getByRole('button', { name: 'Later' }).click()
   await expect(page.locator('.update-card')).toHaveCount(0)
 })

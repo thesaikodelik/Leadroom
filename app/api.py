@@ -94,6 +94,7 @@ class RunCreate(BaseModel):
     discovery_mode: str = Field(default="new_only", pattern="^(new_only|reuse|refresh)$")
     crawl_mode: str = Field(default="deep", pattern="^(quick|deep|exhaustive)$")
     advanced_fetching: bool = True
+    ai_extraction: str = Field(default="auto", pattern="^(auto|off)$")
 
 
 class Problem(BaseModel):
@@ -1948,6 +1949,7 @@ def create_app(database_path: Path | None = None, frontend_dir: Path | None = No
                     "crawl_page_limit": config.crawl_page_limit,
                     "crawl_depth": config.crawl_depth,
                     "advanced_fetching": config.advanced_fetching,
+                    "ai_extraction": config.ai_extraction,
                 },
                 "events": repo.list_events(run_id)[-100:],
             }
