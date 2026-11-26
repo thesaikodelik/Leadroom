@@ -6,6 +6,7 @@ import binascii
 import csv
 import io
 import json
+import logging
 import os
 import re
 import shutil
@@ -36,6 +37,7 @@ from pydantic import BaseModel, Field, field_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from app import market
 from app.compliance import ComplianceService
 from app.config import DEFAULT_BLOCKED_DOMAINS, MODEL_CONTEXT_TOKENS, ScraperConfig
 from app.database import RUN_TERMINAL, RunRepository
@@ -308,9 +310,7 @@ class StorageBrowse(BaseModel):
 
 
 class ThemeUpdate(BaseModel):
-    theme: str = Field(
-        pattern="^(fieldbook|oxblood|navy|graphite)$"
-    )
+    theme: str = Field(pattern="^(fieldbook|oxblood|navy|graphite)$")
     version: int = Field(default=0, ge=0)
 
 
@@ -389,9 +389,7 @@ def _settings_payload(repo: RunRepository) -> dict[str, Any]:
     if not isinstance(raw_blocked, list) or blocked_domains != raw_blocked:
         repairs["blocked_domains"] = json.dumps(blocked_domains)
     workspace_name = _text_or_default(stored.get("workspace_name"), DEFAULT_WORKSPACE_NAME)
-    workspace_subtitle = _text_or_default(
-        stored.get("workspace_subtitle"), DEFAULT_WORKSPACE_SUBTITLE
-    )
+    workspace_subtitle = _text_or_default(stored.get("workspace_subtitle"), DEFAULT_WORKSPACE_SUBTITLE)
     if stored.get("workspace_name") != workspace_name:
         repairs["workspace_name"] = workspace_name
     if stored.get("workspace_subtitle") != workspace_subtitle:
@@ -732,9 +730,11 @@ def create_app(database_path: Path | None = None, frontend_dir: Path | None = No
             lambda: app.state.discovery_jobs.get(run_id) == token,
         )
         future.add_done_callback(
-            lambda _future: app.state.discovery_jobs.pop(run_id, None)
-            if app.state.discovery_jobs.get(run_id) == token
-            else None
+            lambda _future: (
+                app.state.discovery_jobs.pop(run_id, None)
+                if app.state.discovery_jobs.get(run_id) == token
+                else None
+            )
         )
 
     def schedule_enrichment(config: ScraperConfig, run_id: str) -> None:
@@ -747,9 +747,11 @@ def create_app(database_path: Path | None = None, frontend_dir: Path | None = No
             lambda: app.state.enrichment_jobs.get(run_id) == token,
         )
         future.add_done_callback(
-            lambda _future: app.state.enrichment_jobs.pop(run_id, None)
-            if app.state.enrichment_jobs.get(run_id) == token
-            else None
+            lambda _future: (
+                app.state.enrichment_jobs.pop(run_id, None)
+                if app.state.enrichment_jobs.get(run_id) == token
+                else None
+            )
         )
 
     recovery = ComplianceService(database_path)
@@ -993,6 +995,7 @@ def create_app(database_path: Path | None = None, frontend_dir: Path | None = No
         repo = repository()
         try:
             repo.stop_stale_searches(_search_stale_seconds())
+            repo.stop_orphaned_runs(set(app.state.enrichment_jobs) | set(app.state.discovery_jobs))
             return repo.list_runs(limit)
         finally:
             repo.engine.dispose()
@@ -1246,11 +1249,7 @@ def create_app(database_path: Path | None = None, frontend_dir: Path | None = No
             generation_payload = {"model": model_name, "prompt": "Reply with OK.", "stream": False}
         else:
             models = inventory.get("data", []) if isinstance(inventory, dict) else []
-            installed = {
-                str(item.get("id"))
-                for item in models
-                if isinstance(item, dict) and item.get("id")
-            }
+            installed = {str(item.get("id")) for item in models if isinstance(item, dict) and item.get("id")}
             if model_name not in installed:
                 raise ValueError(f"The selected model '{model_name}' is not available")
             generation_url = f"{endpoint}/chat/completions"
@@ -1275,8 +1274,7 @@ def create_app(database_path: Path | None = None, frontend_dir: Path | None = No
             raise ValueError("The selected model returned an invalid generation response") from exc
         if current["model_provider"] == "ollama":
             usable = bool(
-                isinstance(generated_payload, dict)
-                and str(generated_payload.get("response") or "").strip()
+                isinstance(generated_payload, dict) and str(generated_payload.get("response") or "").strip()
             )
         else:
             choices = generated_payload.get("choices", []) if isinstance(generated_payload, dict) else []
@@ -1356,8 +1354,7 @@ def create_app(database_path: Path | None = None, frontend_dir: Path | None = No
                 (
                     job
                     for job in app.state.model_downloads.values()
-                    if job["model"] == payload.model
-                    and job["status"] in {"queued", "downloading"}
+                    if job["model"] == payload.model and job["status"] in {"queued", "downloading"}
                 ),
                 None,
             )
@@ -1378,9 +1375,7 @@ def create_app(database_path: Path | None = None, frontend_dir: Path | None = No
             }
             app.state.model_downloads[job_id] = job
             try:
-                future = app.state.model_executor.submit(
-                    pull_ollama_model, job_id, endpoint, payload.model
-                )
+                future = app.state.model_executor.submit(pull_ollama_model, job_id, endpoint, payload.model)
             except RuntimeError:
                 app.state.model_downloads.pop(job_id, None)
                 raise ValueError("The application is shutting down") from None
@@ -1923,6 +1918,7 @@ def create_app(database_path: Path | None = None, frontend_dir: Path | None = No
     def get_run(run_id: str) -> dict[str, Any]:
         repo = repository()
         try:
+            repo.stop_orphaned_runs(set(app.state.enrichment_jobs) | set(app.state.discovery_jobs))
             return {
                 "run": repo.run_status(run_id),
                 "candidates": repo.list_candidates(run_id),
@@ -2139,6 +2135,9 @@ def create_app(database_path: Path | None = None, frontend_dir: Path | None = No
     return app
 
 
+RUN_LOG = logging.getLogger("leadroom.runs")
+
+
 def _execute_run(
     config: ScraperConfig,
     run_id: str,
@@ -2149,10 +2148,21 @@ def _execute_run(
         run_pipeline(
             config,
             resume_run_id=run_id,
-            cancel_check=lambda: repo.is_cancelled(run_id)
-            or bool(active_check and not active_check()),
+            cancel_check=lambda: repo.is_cancelled(run_id) or bool(active_check and not active_check()),
             active_check=active_check,
         )
+    except Exception as exc:
+        # A worker thread's exception would otherwise vanish inside its future and
+        # leave the run showing "running" with nothing behind it.
+        RUN_LOG.exception("Enrichment for run %s stopped with an error", run_id)
+        if active_check is None or active_check():
+            with suppress(Exception):
+                if repo.run_status(run_id)["status"] == "running":
+                    repo.finish_run(
+                        run_id,
+                        "stopped",
+                        {"reason": f"Reading stopped after an error: {exc}"[:300]},
+                    )
     finally:
         repo.engine.dispose()
 
@@ -2167,6 +2177,7 @@ def _execute_discovery(
     repo = RunRepository(config.database_path)
     try:
         status = repo.run_status(run_id)
+        market.prepare(config)
         source_mode = source_mode or _source_mode(config.search_provider)
         provider = {"local": "osm_local", "web": "auto", "both": "hybrid"}[source_mode]
         effective_config = config.model_copy(update={"search_provider": provider})
@@ -2208,6 +2219,8 @@ def _execute_discovery(
             cancel_check=lambda: repo.is_cancelled(run_id) or bool(active_check and not active_check()),
             progress_callback=lambda: repo.touch_search(run_id),
             deadline=time.monotonic() + _search_timeout_seconds(),
+            # Business names from list pages that the last pass had no time to look up.
+            pending_names=list(previous_discovery.get("pending_names") or []) if continuation else None,
         )
         sites = _select_discovery_batch(found_sites, config.max_sites, source_mode)
         if active_check and not active_check():
@@ -2231,6 +2244,7 @@ def _execute_discovery(
     except KeyError:
         pass
     except Exception as exc:
+        RUN_LOG.exception("Search for run %s stopped with an error", run_id)
         with suppress(KeyError):
             repo.finish_run(
                 run_id,
@@ -2269,7 +2283,9 @@ def _select_discovery_batch(
 
 
 def _search_timeout_seconds() -> int:
-    return max(15, int(os.getenv("LEAD_SEARCH_TIMEOUT_SECONDS", "90")))
+    # A pass runs a batch of queries, reads list pages and looks up the names on them;
+    # when time runs out it keeps what it found.
+    return max(15, int(os.getenv("LEAD_SEARCH_TIMEOUT_SECONDS", "150")))
 
 
 def _search_stale_seconds() -> int:

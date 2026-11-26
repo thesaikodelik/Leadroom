@@ -113,7 +113,7 @@ test('initial discovery opens a controllable search job', async ({ page }) => {
 
   await expect(page.getByText('Search in progress')).toBeVisible()
   await expect(page.getByRole('progressbar', { name: 'Searching for candidates' })).toBeVisible()
-  await expect(page.locator('.search-progress-head small')).toHaveText('Waiting for the first persisted candidates')
+  await expect(page.locator('.search-progress-copy small')).toHaveText('Searching the web, list pages and the local map')
   await expect(page.getByRole('heading', { name: 'progress_run' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible()
 })

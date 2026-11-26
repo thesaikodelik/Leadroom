@@ -81,7 +81,7 @@ import './Responsive.css'
 
 const statusLabels: Record<string, string> = {
   created: 'Created', ready: 'Ready', queued: 'Queued', processing: 'Enriching',
-  completed: 'Completed', no_contact: 'No contact', failed: 'Failed', cancelled: 'Skipped', running: 'Enriching',
+  completed: 'Completed', no_contact: 'No contact', off_market: 'Not a match', failed: 'Failed', cancelled: 'Skipped', running: 'Enriching',
   searching: 'Searching', stopped: 'Stopped', approved: 'Approved', sent: 'Sent', blocked: 'Blocked',
   draft: 'Draft', sending: 'Sending', uncertain: 'Uncertain', exported: 'Exported', sent_after_suppression: 'Sent',
 }
@@ -436,7 +436,7 @@ function RunRowCells({ run, busy, onControl, onDelete }: { run: RunSummary; busy
   const counts = run.counts ?? {}
   const total = Object.values(counts).reduce((sum, value) => sum + value, 0)
   const selected = total - (counts.cancelled ?? 0)
-  const read = (counts.completed ?? 0) + (counts.no_contact ?? 0) + (counts.failed ?? 0)
+  const read = (counts.completed ?? 0) + (counts.no_contact ?? 0) + (counts.off_market ?? 0) + (counts.failed ?? 0)
   const title = runTitle(run)
   return <><td data-label="Run"><NavLink className="row-title" aria-label={title} to={`/runs/${run.id}`}><span><strong>{title}</strong><small className="muted">{[run.location, run.created_at && `started ${formatDate(run.created_at)}`].filter(Boolean).join(' · ') || run.run_name}</small></span></NavLink></td><td data-label="Progress"><Traverse compact label={`${title} progress`} stations={runStations(run, total, selected, read, counts.completed ?? 0, 0).slice(0, 4)} /></td><td data-label="Status"><StatusBadge status={run.status} /></td><td data-label="Updated" className="num">{formatDate(run.updated_at)}</td><td className="runs-actions"><div className="run-row-actions"><button className={`icon-button ${active ? 'stop-action' : 'continue-action'}`} disabled={busy} onClick={() => onControl(active ? 'stop' : 'continue')} aria-label={`${active ? 'Stop' : 'Continue'} ${run.run_name}`} title={active ? 'Stop run' : 'Continue run'}>{active ? <CircleStop /> : <Play />}</button><NavLink className="icon-button" aria-label={`Open ${run.run_name}`} title="Open run" to={`/runs/${run.id}`}><ArrowUpRight /></NavLink><button className="icon-button destructive" disabled={busy} onClick={onDelete} aria-label={`Delete ${run.run_name}`} title="Delete run"><Trash2 /></button></div></td></>
 }
@@ -561,7 +561,7 @@ function CrawlOption({ mode, selected, onSelect, recommended = false }: { mode: 
   const profile = CRAWL_PROFILES[mode]
   return <label className={`crawl-option ${selected === mode ? 'selected' : ''}`}>
     <input type="radio" name="crawl-mode" value={mode} checked={selected === mode} onChange={() => onSelect(mode)} />
-    <span><strong>{profile.label}{recommended && <small>Recommended</small>}</strong><em>{profile.pages} pages · depth {profile.depth}</em><i>{profile.detail}</i></span>
+    <span><strong>{profile.label}{recommended && <small>Recommended</small>}</strong><em>Up to {profile.pages} pages · depth {profile.depth}</em><i>{profile.detail}</i></span>
     <span className="radio-mark"><Check /></span>
   </label>
 }
@@ -634,7 +634,8 @@ function RunPage() {
   // The run's own status counts cover every candidate, including any not loaded here.
   const total = Math.max(candidates.length, Object.values(run.counts ?? {}).reduce((sum, value) => sum + value, 0))
   const selected = total - (run.counts.cancelled ?? 0)
-  const done = (run.counts.completed ?? 0) + (run.counts.no_contact ?? 0) + (run.counts.failed ?? 0)
+  const done = (run.counts.completed ?? 0) + (run.counts.no_contact ?? 0) + (run.counts.off_market ?? 0) + (run.counts.failed ?? 0)
+  const offMarket = run.counts.off_market ?? 0
   const failed = run.counts.failed ?? 0
   const noContact = run.counts.no_contact ?? 0
   const active = run.status === 'searching' || run.status === 'running'
@@ -654,7 +655,7 @@ function RunPage() {
       ? `Reading sites · ${done} of ${selected} done`
       : selected && !done
         ? 'Choose which candidates to read, then continue the run.'
-        : `${noContact} site${noContact === 1 ? '' : 's'} had no public contact`
+        : [`${noContact} site${noContact === 1 ? '' : 's'} had no public contact`, offMarket ? `${offMarket} set aside as not a match` : ''].filter(Boolean).join(' · ')
   return <section className="run-page">
     <header className="page-header run-header">
       <div>
@@ -738,20 +739,28 @@ function CandidatesPanel({ runId, candidates, disabled, source, onSourceChange, 
         <span className="candidate-meta"><small title={displayText(item.snippet)}>{displayText(item.snippet)}</small><span className="candidate-sources">{(item.sources ?? [item.source === 'osm_local' ? 'local' : 'web']).map((source) => <em className={`source-${source}`} role="img" aria-label={source === 'local' ? 'Local file' : 'Web result'} title={source === 'local' ? 'This result comes from the local database' : 'This result comes from the web'} key={source}>{source === 'local' ? <Database /> : <Search />}</em>)}</span></span>
       </span>
       {(item.homepage || item.osm_url) && <a className="icon-button" href={item.homepage || item.osm_url} target="_blank" rel="noreferrer" aria-label={`Open ${item.domain}`}><ExternalLink /></a>}
-    </div>})}{visibleCandidates.length === 0 && <div className="candidate-source-empty"><Search /><strong>No {source} candidates yet</strong><span>Use {discoveryLabel.toLowerCase()} to add results to this run.</span></div>}</div>
+    </div>})}{visibleCandidates.length === 0 && <div className="candidate-source-empty"><Search /><strong>{source === 'all' ? 'No candidates yet' : `No ${source} candidates yet`}</strong><span>{discovering ? 'They appear here when the search finishes.' : `Use ${discoveryLabel.toLowerCase()} to add results to this run.`}</span></div>}</div>
   </div>
 }
 
 function ProgressPanel({ candidates, selected, done, discovery }: { candidates: Candidate[]; selected: number; done: number; discovery?: RunSummary['discovery'] }) {
   const percent = selected ? Math.min(100, Math.round(done / selected * 100)) : 0
-  return <div className="panel"><div className="progress-head"><div><h2>Enrichment progress</h2><p>Each result is persisted as it completes.</p></div><strong>{percent}%</strong></div>
+  return <div className="panel"><div className="progress-head"><div><h2>Enrichment progress</h2><p>Each site is saved as soon as it is read.</p></div><strong>{percent}%</strong></div>
     {!!discovery?.mode && <DiscoverySummaryBand discovery={discovery} />}
     <div className="progress-track" role="progressbar" aria-label="Enrichment progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><span style={{ width: `${percent}%` }} /></div>
     <div className="progress-list">{candidates.filter((c) => c.status !== 'cancelled').map((item) => {
       const checked = item.crawl_pages_checked ?? 0
       const limit = item.crawl_page_limit ?? CRAWL_PROFILES[item.crawl_mode ?? 'deep'].pages
       const pagePercent = limit ? Math.min(100, Math.round(checked / limit * 100)) : 0
-      return <div key={item.domain}><span className={`status-dot dot-${item.status}`} /><span className="crawl-progress-copy"><strong>{item.domain}</strong>{checked > 0 && <span><small>{checked} of {limit} pages · {item.crawl_contacts_found ?? 0} contacts</small><i role="progressbar" aria-label={`${item.domain}: ${checked} of ${limit} pages checked`} aria-valuemin={0} aria-valuemax={limit} aria-valuenow={checked}><em style={{ width: `${pagePercent}%` }} /></i></span>}</span><StatusBadge status={item.status} /></div>
+      const contacts = item.crawl_contacts_found ?? 0
+      const contactText = `${contacts} ${contacts === 1 ? 'contact' : 'contacts'}`
+      const reading = item.status === 'processing'
+      // A site read but outside the market says why it was set aside.
+      const setAside = item.status === 'off_market' ? item.market_fit_reason : ''
+      // The page limit is a ceiling: a site stops being read once its contacts are found.
+      return <div key={item.domain}><span className={`status-dot dot-${item.status}`} /><span className="crawl-progress-copy"><strong>{item.domain}</strong>{checked > 0 && (reading
+        ? <span><small title={`Stops by ${limit} pages, sooner once contacts are found`}>Page {checked} of up to {limit} · {contactText}</small><i role="progressbar" aria-label={`${item.domain}: ${checked} of up to ${limit} pages checked`} aria-valuemin={0} aria-valuemax={limit} aria-valuenow={checked}><em style={{ width: `${pagePercent}%` }} /></i></span>
+        : <span><small>{checked} {checked === 1 ? 'page' : 'pages'} read · {contactText}</small></span>)}{setAside && <small className="fit-reason">{setAside}</small>}</span><StatusBadge status={item.status} /></div>
     })}</div>
   </div>
 }
@@ -851,6 +860,7 @@ function EvidencePanel({ runId, lead, onClose, onEdit }: { runId: string; lead: 
       <button className="icon-button" onClick={onClose} aria-label="Close evidence"><X /></button>
     </div>
     <div className="evidence-score"><ScoreRamp score={lead.lead_score} /><p>{lead.lead_reason || 'Score from the evidence found on the business’s own pages.'}</p></div>
+    {lead.market_fit === 'unclear' && <p className="fit-check" role="note"><strong>Check the fit.</strong> {lead.market_fit_reason}</p>}
     <dl className="evidence-fields">{fields.map(({ key, label, value, list, icon: Icon }) => {
       const item = lead.field_evidence?.[key] ?? lead.field_evidence?.[key === 'generic_email' ? 'emails' : key === 'phone' ? 'phones' : key]
       const contact = key === 'generic_email' || key === 'phone'
@@ -1647,10 +1657,10 @@ function SearchProgress({ mode }: { mode: 'initial' | 'continuation' }) {
     return () => window.clearInterval(timer)
   }, [])
   const stage = mode === 'initial'
-    ? 'Waiting for the first persisted candidates'
-    : 'Waiting for the next persisted candidate batch'
+    ? 'Searching the web, list pages and the local map'
+    : 'Looking for more businesses'
   const time = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`
-  return <div className="search-progress"><span className="sr-only" role="status" aria-live="polite">{stage}</span><div className="search-progress-head"><span><ScanSearch /><span><strong>Search in progress</strong><small>{stage}</small></span></span><time aria-hidden="true">{time}</time></div><div className="search-progress-track" role="progressbar" aria-label="Searching for candidates" aria-valuetext={stage}><span /></div><div className="search-progress-foot"><span>Results are filtered before they enter this run.</span><span>Elapsed</span></div></div>
+  return <div className="search-progress"><span className="sr-only" role="status" aria-live="polite">{stage}</span><div className="search-progress-head"><ScanSearch aria-hidden="true" /><span className="search-progress-copy"><strong>Search in progress</strong><small>{stage}</small></span><span className="search-progress-time" aria-hidden="true"><time>{time}</time><small>Elapsed</small></span></div><div className="search-progress-track" role="progressbar" aria-label="Searching for candidates" aria-valuetext={stage}><span /></div><p className="search-progress-foot">This can take up to 3 minutes. Only results that fit the market enter this run.</p></div>
 }
 function LoadingRows() { return <div className="loading" role="status" aria-live="polite"><span className="sr-only">Loading</span><i /><i /><i /></div> }
 function EmptyState() {

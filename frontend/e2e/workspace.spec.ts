@@ -21,8 +21,13 @@ test('run review and lead evidence workflow', async ({ page }, testInfo) => {
   await candidatesTab.click()
   await candidatesTab.press('ArrowRight')
   await expect(page.getByRole('tab', { name: /Reading/ })).toBeFocused()
-  await expect(page.getByText('7 of 20 pages · 2 contacts')).toBeVisible()
-  await expect(page.getByLabel('7 of 20 pages checked')).toBeVisible()
+  // A finished site shows the pages it read, not a partly filled bar toward the ceiling.
+  await expect(page.getByText('7 pages read · 2 contacts')).toBeVisible()
+  await expect(page.getByLabel(/pages checked/)).toHaveCount(0)
+  // A site read but outside the market is set aside and says why.
+  await expect(page.getByRole('tabpanel', { name: /Reading/ }).getByText('Not a match', { exact: true })).toBeVisible()
+  await expect(page.getByText('1 set aside as not a match')).toBeVisible()
+  await expect(page.getByText('A national chain of clinics, not an independent London practice.')).toBeVisible()
   await page.getByRole('tab', { name: /Reading/ }).press('Home')
   await expect(page.getByRole('tab', { name: /Leads/ })).toBeFocused()
   await expect(page.getByRole('tabpanel', { name: /Leads/ })).toBeVisible()

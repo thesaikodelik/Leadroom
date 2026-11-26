@@ -7,11 +7,12 @@ from collections.abc import Callable
 from typing import Any
 
 import httpx
-
-from pydantic import ValidationError
+from langchain_ollama import ChatOllama
+from pydantic import PrivateAttr, ValidationError
 from scrapegraphai.graphs import SmartScraperGraph
 from scrapegraphai.telemetry import disable_telemetry
 
+from app import market
 from app.config import MODEL_CONTEXT_TOKENS, ScraperConfig
 from app.enrichment import HtmlFetcher, apply_enrichment, enrich_public_pages
 from app.filters import same_business_domain
@@ -25,6 +26,46 @@ from app.parser import parse_model_output
 disable_telemetry()
 
 logger = logging.getLogger(__name__)
+
+
+class StoppableChatOllama(ChatOllama):
+    """An Ollama chat model whose work can be called off from another thread.
+
+    ScrapeGraphAI reads a long page as several chunks, one model call each. When
+    a site times out or the run is stopped, the old behaviour left those calls
+    running in the background, so Ollama stayed busy with answers nobody would
+    read and the next sites queued behind them. halt() closes the connection,
+    which makes Ollama drop the answer it is writing, and refuses later calls.
+    """
+
+    _stopped: threading.Event = PrivateAttr(default_factory=threading.Event)
+
+    def halt(self) -> None:
+        self._stopped.set()
+        client = getattr(getattr(self, "_client", None), "_client", None)
+        if client is not None:
+            try:
+                client.close()
+            except Exception:  # the connection may already be gone
+                logger.debug("Closing the Ollama connection failed", exc_info=True)
+
+    @property
+    def halted(self) -> bool:
+        return self._stopped.is_set()
+
+    def _create_chat_stream(self, messages, stop=None, **kwargs):  # type: ignore[override]
+        if self._stopped.is_set():
+            raise InterruptedError("The model call was stopped")
+        stream = super()._create_chat_stream(messages, stop, **kwargs)
+        try:
+            for part in stream:
+                if self._stopped.is_set():
+                    raise InterruptedError("The model call was stopped")
+                yield part
+        finally:
+            # Closing the stream closes its HTTP response, so Ollama stops writing.
+            stream.close()
+
 
 # How long a finding that the local model is unreachable is trusted, so a run on a
 # computer without Ollama does not wait on it for every site.
@@ -97,13 +138,20 @@ def scrape_business_site(
         if named_site_evidence:
             field_evidence["business_name"] = named_site_evidence
 
+    guarded_html = ""
+
+    def finish(lead: dict[str, Any]) -> dict[str, Any]:
+        # Every lead is checked against the market it was found for, so a chain
+        # store found for "Iranian supermarket" is set aside on its own.
+        return market.judge(lead, guarded_html, config)
+
     def without_model(reason: str) -> dict[str, Any]:
         # The rule-based pass already read the contact details, JSON-LD and pages;
         # keep those instead of failing the site.
         lead = normalize_lead({}, source_url=url)
         lead["ai_extraction"] = "skipped"
         lead["ai_skipped_reason"] = reason
-        return apply_enrichment(lead, public_data, field_evidence, enrichment_errors)
+        return finish(apply_enrichment(lead, public_data, field_evidence, enrichment_errors))
 
     provider = config.model.split("/", 1)[0] if "/" in config.model else "ollama"
     llm_config: dict[str, Any] = {
@@ -113,9 +161,16 @@ def scrape_business_site(
     }
     if config.ollama_base_url:
         llm_config["base_url"] = config.ollama_base_url
+    stoppable: StoppableChatOllama | None = None
     if provider == "ollama":
-        llm_config["format"] = LeadExtraction.model_json_schema()
-        llm_config["num_ctx"] = MODEL_CONTEXT_TOKENS
+        stoppable = StoppableChatOllama(
+            model=config.model.removeprefix("ollama/"),
+            temperature=0,
+            format=LeadExtraction.model_json_schema(),
+            num_ctx=MODEL_CONTEXT_TOKENS,
+            **({"base_url": config.ollama_base_url} if config.ollama_base_url else {}),
+        )
+        llm_config = {"model_instance": stoppable, "model_tokens": MODEL_CONTEXT_TOKENS}
     elif config.llm_api_key:
         llm_config["api_key"] = config.llm_api_key
     graph_config = {
@@ -147,7 +202,12 @@ def scrape_business_site(
         return without_model(unavailable)
     graph = SmartScraperGraph(prompt=LEAD_PROMPT, source=guarded_html, config=graph_config)
     try:
-        raw = _run_with_timeout(graph.run, config.ai_timeout_seconds, cancel_check)
+        raw = _run_with_timeout(
+            graph.run,
+            config.ai_timeout_seconds,
+            cancel_check,
+            on_abandon=stoppable.halt if stoppable else None,
+        )
     except InterruptedError:
         raise
     except TimeoutError:
@@ -166,22 +226,24 @@ def scrape_business_site(
             lead = normalize_lead(None, source_url=url)
             lead["raw_output"] = raw_text
             lead["validation_errors"] = exc.errors(include_url=False)
-            return apply_enrichment(lead, public_data, field_evidence, enrichment_errors)
+            return finish(apply_enrichment(lead, public_data, field_evidence, enrichment_errors))
     lead = normalize_lead(parsed, source_url=url)
     if not parsed:
         lead["raw_output"] = raw_text
-    return apply_enrichment(lead, public_data, field_evidence, enrichment_errors)
+    return finish(apply_enrichment(lead, public_data, field_evidence, enrichment_errors))
 
 
 def _run_with_timeout(
     work: Callable[[], Any],
     timeout: float,
     cancel_check: Callable[[], bool] | None = None,
+    on_abandon: Callable[[], None] | None = None,
 ) -> Any:
     """Run work in a daemon thread; give up after timeout or when the run is cancelled.
 
-    A model call cannot be interrupted, so on timeout the thread is left to finish on
-    its own and its answer is dropped.
+    On giving up, on_abandon is called so the work can stop itself (the Ollama model
+    closes its connection); without it the thread finishes on its own and its answer
+    is dropped.
     """
     outcome: dict[str, Any] = {}
 
@@ -196,14 +258,25 @@ def _run_with_timeout(
     deadline = time.monotonic() + timeout
     while thread.is_alive():
         if cancel_check and cancel_check():
+            _abandon(on_abandon)
             raise InterruptedError("Enrichment stopped")
         remaining = deadline - time.monotonic()
         if remaining <= 0:
+            _abandon(on_abandon)
             raise TimeoutError(f"no answer within {timeout:.0f} seconds")
         thread.join(min(0.5, remaining))
     if "error" in outcome:
         raise outcome["error"]
     return outcome.get("value")
+
+
+def _abandon(on_abandon: Callable[[], None] | None) -> None:
+    if on_abandon is None:
+        return
+    try:
+        on_abandon()
+    except Exception:  # stopping is best effort; the answer is dropped either way
+        logger.debug("Stopping abandoned model work failed", exc_info=True)
 
 
 def _model_key(config: ScraperConfig) -> tuple[str, str]:

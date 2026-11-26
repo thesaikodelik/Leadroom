@@ -75,6 +75,8 @@ LEAD_FIELDS = [
     "address",
     "latitude",
     "longitude",
+    "market_fit",
+    "market_fit_reason",
 ]
 
 BAD_NAMES = {

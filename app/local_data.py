@@ -7,9 +7,11 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from app import market
 from app.filters import domain_key
 
 try:
@@ -43,6 +45,10 @@ NICHE_QUALIFIERS = {
     "providers",
     "service",
     "services",
+    "shop",
+    "shops",
+    "store",
+    "stores",
 }
 
 
@@ -170,13 +176,9 @@ class LocalDataService:
         if psycopg is None:
             raise RuntimeError("The local data engine requires psycopg")
         niche_terms = _expand_niche(niche)
-        location_term = " ".join(
-            re.sub(r"\b(?:uk|united kingdom)\b", " ", location.casefold())
-            .translate(str.maketrans({",": " ", ".": " ", "-": " "}))
-            .split()
-        )
+        location_term = _location_term(location)
         if self._use_wsl_bridge:
-            return self._wsl_search(niche_terms, location_term, limit, offset)
+            return self._wsl_search(niche, niche_terms, location_term, limit, offset)
         niche_parameters = {f"niche_{index}": term for index, term in enumerate(niche_terms)}
         niche_rank = ", ".join(
             part
@@ -186,11 +188,8 @@ class LocalDataService:
                 f"word_similarity(%(niche_{index})s, business.search_text)",
             )
         )
-        niche_match = " OR ".join(
-            f"%(niche_{index})s <%% business.search_text "
-            f"OR business.search_text ILIKE '%%' || %(niche_{index})s || '%%'"
-            for index in range(len(niche_terms))
-        )
+        niche_match, word_parameters = _niche_match_sql(niche, lambda name: f"%({name})s", "%%")
+        niche_parameters.update(word_parameters)
         with self._connect() as connection, connection.cursor() as cursor:
             cursor.execute(
                 f"""
@@ -252,6 +251,86 @@ class LocalDataService:
             )
             rows = cursor.fetchall()
         return [self._candidate(row) for row in rows]
+
+    def areas(self, location: str, limit: int = 40) -> list[str]:
+        """The districts inside a location, largest first (London gives its 32 boroughs).
+
+        Searching each district finds businesses that a search for the whole city
+        ranks too low to show.
+        """
+        location_term = _location_term(location)
+        if not location_term:
+            return []
+        rows = self._json_rows(
+            f"""
+            WITH area AS ({_area_sql(location_term)})
+            SELECT place.name
+            FROM leadroom_osm_places AS place, area
+            WHERE place.osm_id <> area.osm_id
+              AND place.admin_level ~ '^[0-9]+$'
+              AND place.admin_level::int > area.level
+              AND place.geom && area.geom
+              AND ST_Covers(area.geom, ST_PointOnSurface(place.geom))
+            ORDER BY place.admin_level::int, ST_Area(place.geom) DESC
+            LIMIT {int(limit)}
+            """
+        )
+        names = [_district_name(str(row.get("name") or "")) for row in rows]
+        return [name for name in dict.fromkeys(names) if name and name.casefold() != location_term]
+
+    def find_names(self, names: list[str], location: str, limit: int = 60) -> list[dict[str, str]]:
+        """Businesses in a location whose names match names found elsewhere, such as a list
+        article; this adds their address and phone even when the name says nothing
+        about the market."""
+        location_term = _location_term(location)
+        wanted = [" ".join(name.casefold().split()) for name in names]
+        wanted = [name for name in dict.fromkeys(wanted) if 4 <= len(name) <= 60][:60]
+        if not location_term or not wanted:
+            return []
+        array = "ARRAY[" + ", ".join(_sql_literal(name) for name in wanted) + "]::text[]"
+        rows = self._json_rows(
+            f"""
+            WITH area AS ({_area_sql(location_term)}),
+            wanted(name) AS (SELECT unnest({array})),
+            -- Only the businesses inside the location are compared with the names; the
+            -- spatial index finds them first, so the comparison stays small.
+            nearby AS MATERIALIZED (
+                SELECT business.*
+                FROM leadroom_osm_businesses AS business, area
+                WHERE business.geom && area.geom AND ST_Covers(area.geom, business.geom)
+            )
+            SELECT DISTINCT ON (business.osm_type, business.osm_id)
+                   business.osm_type, business.osm_id, business.name, business.category,
+                   business.category_value, business.website, business.phone, business.email,
+                   business.address, business.city, business.postcode,
+                   ST_Y(business.geom) AS latitude, ST_X(business.geom) AS longitude,
+                   wanted.name AS wanted
+            FROM wanted
+            JOIN nearby AS business ON similarity(lower(business.name), wanted.name) >= 0.75
+            LIMIT {int(limit)}
+            """,
+            # Comparing every business in a city with each name takes a few seconds,
+            # more while a market search runs beside it.
+            timeout=45,
+        )
+        return [
+            self._candidate(row)
+            for row in rows
+            if _same_business(str(row.get("name") or ""), str(row.get("wanted") or ""), wanted)
+        ]
+
+    def _json_rows(self, query: str, timeout: int = 20) -> list[dict[str, Any]]:
+        wrapped = f"SELECT coalesce(json_agg(row_to_json(result)), '[]'::json) FROM ({query}) AS result"
+        if self._use_wsl_bridge:
+            rows = self._wsl_json(wrapped, timeout)
+        else:
+            if psycopg is None:
+                raise RuntimeError("The local data engine requires psycopg")
+            with self._connect() as connection, connection.cursor() as cursor:
+                cursor.execute(wrapped)
+                row = cursor.fetchone()
+                rows = next(iter(row.values())) if row else []
+        return rows if isinstance(rows, list) else []
 
     def preview(self, niche: str, location: str, limit: int = 8) -> dict[str, Any]:
         started = time.perf_counter()
@@ -325,7 +404,7 @@ class LocalDataService:
             return result
 
     def _wsl_search(
-        self, niche_terms: list[str], location: str, limit: int, offset: int
+        self, niche: str, niche_terms: list[str], location: str, limit: int, offset: int
     ) -> list[dict[str, str]]:
         niche_sql = [_sql_literal(term) for term in niche_terms]
         location_sql = _sql_literal(location)
@@ -337,9 +416,9 @@ class LocalDataService:
                 f"word_similarity({term}, business.search_text)",
             )
         )
-        niche_match = " OR ".join(
-            f"{term} <% business.search_text OR business.search_text ILIKE '%' || {term} || '%'"
-            for term in niche_sql
+        niche_match, word_parameters = _niche_match_sql(niche, lambda name: "{" + name + "}", "%")
+        niche_match = niche_match.format(
+            **{name: _sql_literal(value) for name, value in word_parameters.items()}
         )
         query = f"""
             WITH matching_places AS MATERIALIZED (
@@ -397,7 +476,7 @@ class LocalDataService:
         return [self._candidate(row) for row in self._wsl_json(query)]
 
     @staticmethod
-    def _wsl_json(query: str) -> Any:
+    def _wsl_json(query: str, timeout: int = 20) -> Any:
         completed = _run_hidden(
             [
                 "wsl",
@@ -413,7 +492,7 @@ class LocalDataService:
                 "-c",
                 query,
             ],
-            timeout=20,
+            timeout=timeout,
         )
         if completed.returncode:
             raise RuntimeError(completed.stderr.strip() or "WSL PostgreSQL query failed")
@@ -468,6 +547,59 @@ class LocalDataService:
         }
 
 
+def _location_term(location: str) -> str:
+    return " ".join(
+        re.sub(r"\b(?:uk|united kingdom)\b", " ", location.casefold())
+        .translate(str.maketrans({",": " ", ".": " ", "-": " "}))
+        .split()
+    )
+
+
+def _area_sql(location_term: str) -> str:
+    """The one place polygon that best matches a location, with its administrative level."""
+    literal = _sql_literal(location_term)
+    return f"""
+        SELECT place.osm_id, place.geom,
+               CASE WHEN place.admin_level ~ '^[0-9]+$' THEN place.admin_level::int ELSE 0 END AS level
+        FROM leadroom_osm_places AS place
+        WHERE ST_Dimension(place.geom) >= 2
+          AND ({literal} <% place.search_text OR place.search_text ILIKE '%' || {literal} || '%')
+        ORDER BY greatest(similarity(place.search_text, {literal}),
+                          word_similarity({literal}, place.search_text)) DESC,
+                 ST_Area(place.geom) DESC
+        LIMIT 1
+    """
+
+
+_DISTRICT_PREFIXES = re.compile(
+    r"^(?:(?:london|royal|metropolitan)\s+)?(?:borough|district|city|county|municipality)\s+of\s+",
+    re.IGNORECASE,
+)
+
+
+def _district_name(name: str) -> str:
+    """ "London Borough of Ealing" -> "Ealing"; "City of Westminster" -> "Westminster"."""
+    return " ".join(_DISTRICT_PREFIXES.sub("", " ".join(name.split())).split())
+
+
+def _same_business(found: str, wanted: str, all_wanted: list[str]) -> bool:
+    """Whether a map name is the wanted business and not a namesake with the same common words.
+
+    Words several wanted names share ("supermarket", "super") say little; a rarer
+    word of this name ("Aran", "Zaman") must be in the map's name, so "Afran
+    Supermarket" is not taken for "Aran Supermarket". Spaces are ignored, so
+    "Zam Zam" is "Zamzam".
+    """
+    squashed = "".join(re.findall(r"[^\W_]+", found.casefold()))
+    counts: dict[str, int] = {}
+    for name in all_wanted:
+        for word in set(re.findall(r"[^\W_]+", name)):
+            counts[word] = counts.get(word, 0) + 1
+    words = [word for word in re.findall(r"[^\W_]+", wanted) if len(word) >= 3]
+    rare = [word for word in words if counts.get(word, 0) <= 2] or words
+    return any(word in squashed for word in rare)
+
+
 def _sql_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
@@ -500,6 +632,50 @@ def _expand_niche(value: str) -> list[str]:
         if trigger in normalized:
             terms.extend(aliases)
     return list(dict.fromkeys(term for term in terms if term))
+
+
+def _niche_alternatives(value: str) -> list[list[tuple[str, ...]]]:
+    """Ways a business can match the market: each is a list of concepts that must all appear.
+
+    "Iranian supermarket" needs both an Iranian word and a supermarket word, so a
+    chain supermarket does not match on "supermarket" alone. The concepts and their
+    synonyms come from app.market, so this works for any market without word lists.
+    """
+    normalized = " ".join(value.casefold().split())
+    alternatives: list[list[tuple[str, ...]]] = []
+    groups = market.concepts(value)
+    if groups:
+        alternatives.append(groups)
+    for trigger, aliases in NICHE_ALIASES.items():
+        if trigger in normalized:
+            alternatives.extend([[(alias,)] for alias in aliases])
+    unique: list[list[tuple[str, ...]]] = []
+    for alternative in alternatives:
+        if alternative not in unique:
+            unique.append(alternative)
+    return unique
+
+
+def _niche_match_sql(
+    niche: str, placeholder: Callable[[str], str], percent: str
+) -> tuple[str, dict[str, str]]:
+    """SQL that keeps businesses whose name or category contains every word of the market."""
+    parameters: dict[str, str] = {}
+    clauses: list[str] = []
+    for alt_index, groups in enumerate(_niche_alternatives(niche)):
+        parts: list[str] = []
+        for group_index, group in enumerate(groups):
+            name = f"niche_word_{alt_index}_{group_index}"
+            # Each form must start a word, so "iran" finds "Iranian" but not "Miranda".
+            parameters[name] = market.concept_pattern(group)
+            parts.append(f"business.search_text ~ {placeholder(name)}")
+        if len(groups) == 1 and len(groups[0]) == 1:
+            # A single word keeps fuzzy matching for small spelling differences.
+            fuzzy = f"fuzzy_{alt_index}"
+            parameters[fuzzy] = groups[0][0]
+            parts = [f"({parts[0]} OR {placeholder(fuzzy)} <{percent} business.search_text)"]
+        clauses.append("(" + " AND ".join(parts) + ")")
+    return " OR ".join(clauses) or "TRUE", parameters
 
 
 UPDATE_SERVICE = "leadroom-osm-update.service"

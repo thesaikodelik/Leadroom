@@ -28,10 +28,22 @@ class ScraperPipelineTests(unittest.TestCase):
     ):
         self._fetcher(fetcher_class, "https://salon.example/")
         enrich.return_value = (
-            {"business_name": "Rule Salon", "generic_email": "info@salon.example", "emails": ["info@salon.example"]},
             {
-                "business_name": {"value": "Rule Salon", "source_url": "https://salon.example/", "method": "json-ld"},
-                "generic_email": {"value": "info@salon.example", "source_url": "https://salon.example/contact", "method": "mailto"},
+                "business_name": "Rule Salon",
+                "generic_email": "info@salon.example",
+                "emails": ["info@salon.example"],
+            },
+            {
+                "business_name": {
+                    "value": "Rule Salon",
+                    "source_url": "https://salon.example/",
+                    "method": "json-ld",
+                },
+                "generic_email": {
+                    "value": "info@salon.example",
+                    "source_url": "https://salon.example/contact",
+                    "method": "mailto",
+                },
             },
             [],
         )
@@ -84,11 +96,16 @@ class ScraperPipelineTests(unittest.TestCase):
         from app import scraper
 
         original = scraper._run_with_timeout
-        with patch("app.scraper._run_with_timeout", lambda work, _t, cancel=None: original(work, 0.2, cancel)):
+        with patch(
+            "app.scraper._run_with_timeout",
+            lambda work, _t, cancel=None, **options: original(work, 0.2, cancel, **options),
+        ):
             lead = scrape_business_site("https://salon.example/", config)
         release.set()
 
         self.assertIn("took longer", lead["ai_skipped_reason"])
+        # The abandoned model is told to stop, so Ollama is not left writing its answer.
+        self.assertTrue(graph_class.call_args.kwargs["config"]["llm"]["model_instance"].halted)
 
     @patch("app.scraper.enrich_public_pages", return_value=({}, {}, []))
     @patch("app.scraper.HtmlFetcher")
@@ -118,14 +135,16 @@ class ScraperPipelineTests(unittest.TestCase):
         lead = scrape_business_site("https://schema.example/", config)
 
         graph_config = graph_class.call_args.kwargs["config"]
-        self.assertEqual(graph_config["llm"]["format"]["type"], "object")
+        self.assertEqual(graph_config["llm"]["model_instance"].format["type"], "object")
         self.assertEqual(lead["business_name"], "Schema Salon")
         self.assertGreater(lead["lead_score"], 0)
 
     @patch("app.scraper.enrich_public_pages", return_value=({}, {}, []))
     @patch("app.scraper.HtmlFetcher")
     @patch("app.scraper.SmartScraperGraph")
-    def test_ollama_is_given_a_context_window_as_large_as_each_page_chunk(self, graph_class, fetcher_class, _enrich):
+    def test_ollama_is_given_a_context_window_as_large_as_each_page_chunk(
+        self, graph_class, fetcher_class, _enrich
+    ):
         # Ollama keeps only its default window (4096 tokens in 0.24) unless told
         # otherwise, and drops the start of a longer chunk: the part of a page that
         # usually holds the business name and contact links.
@@ -136,8 +155,32 @@ class ScraperPipelineTests(unittest.TestCase):
         scrape_business_site("https://salon.example/", config)
 
         llm = graph_class.call_args.kwargs["config"]["llm"]
-        self.assertEqual(llm["num_ctx"], 8192)
-        self.assertEqual(llm["num_ctx"], llm["model_tokens"])
+        self.assertEqual(llm["model_instance"].num_ctx, 8192)
+        self.assertEqual(llm["model_instance"].num_ctx, llm["model_tokens"])
+
+    def test_a_stopped_model_closes_its_stream_and_refuses_new_calls(self):
+        from app.scraper import StoppableChatOllama
+
+        closed = []
+
+        def stream(*_args, **_kwargs):
+            try:
+                yield {"message": {"content": "{"}}
+                yield {"message": {"content": "}"}}
+            finally:
+                closed.append(True)
+
+        model = StoppableChatOllama(model="llama3.2:3b")
+        with patch("langchain_ollama.ChatOllama._create_chat_stream", side_effect=stream):
+            parts = model._create_chat_stream([])
+            next(parts)
+            model.halt()
+            with self.assertRaises(InterruptedError):
+                next(parts)
+            with self.assertRaises(InterruptedError):
+                next(model._create_chat_stream([]))
+
+        self.assertEqual(closed, [True])
 
     @patch("app.scraper.enrich_public_pages", return_value=({}, {}, []))
     @patch("app.scraper.HtmlFetcher")
@@ -303,9 +346,9 @@ class ScraperPipelineTests(unittest.TestCase):
         ]
         scrape.return_value = {
             **self._lead(
-            "No Contact Studio",
-            "https://nocontact.example/",
-            "nocontact.example",
+                "No Contact Studio",
+                "https://nocontact.example/",
+                "nocontact.example",
             ),
             "generic_email": "",
             "emails": [],
@@ -351,6 +394,107 @@ class ScraperPipelineTests(unittest.TestCase):
                 self.assertEqual(repository.list_runs()[0]["status"], "failed")
             finally:
                 repository.engine.dispose()
+
+    @patch("app.pipeline.search_business_sites")
+    @patch("app.pipeline.scrape_business_site")
+    def test_site_outside_the_market_is_set_aside_with_its_reason(self, scrape, search):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "test.db"
+            config = ScraperConfig(
+                niche="Iranian supermarket",
+                location="London",
+                output_dir=Path(temp_dir),
+                database_path=database_path,
+                delay_seconds=0,
+                reuse_existing_leads=False,
+            )
+            repository = RunRepository(database_path)
+            run_id = repository.create_run(config)
+            domains = ["chain-example.com", "sahar-example.com"]
+            repository.add_candidates(
+                run_id,
+                [
+                    {
+                        "title": d,
+                        "url": f"https://{d}/",
+                        "homepage": f"https://{d}/",
+                        "snippet": "",
+                        "domain": d,
+                    }
+                    for d in domains
+                ],
+            )
+
+            def read_site(url, *_args, **_kwargs):
+                domain = url.split("/")[2]
+                lead = self._lead(domain, url, domain)
+                if domain == "chain-example.com":
+                    lead["market_fit"] = "off_market"
+                    lead["market_fit_reason"] = "A national supermarket chain."
+                return lead
+
+            scrape.side_effect = read_site
+
+            output = run_pipeline(config, resume_run_id=run_id)
+            candidates = {item["domain"]: item for item in repository.list_candidates(run_id)}
+            leads = repository.load_leads(run_id)
+            repository.engine.dispose()
+
+        self.assertEqual(candidates["chain-example.com"]["status"], "off_market")
+        self.assertEqual(
+            candidates["chain-example.com"]["market_fit_reason"], "A national supermarket chain."
+        )
+        self.assertEqual(candidates["sahar-example.com"]["status"], "completed")
+        self.assertEqual([lead["website"] for lead in leads], ["https://sahar-example.com/"])
+        self.assertEqual(len(output["clean_leads"]), 1)
+
+    @patch("app.pipeline.search_business_sites")
+    @patch("app.pipeline.scrape_business_site")
+    def test_site_deselected_during_reading_is_skipped_and_run_finishes(self, scrape, search):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "test.db"
+            config = ScraperConfig(
+                niche="salons",
+                location="London",
+                output_dir=Path(temp_dir),
+                database_path=database_path,
+                delay_seconds=0,
+                reuse_existing_leads=False,
+            )
+            repository = RunRepository(database_path)
+            run_id = repository.create_run(config)
+            domains = ["one-example.com", "two-example.com", "three-example.com"]
+            repository.add_candidates(
+                run_id,
+                [
+                    {
+                        "title": d,
+                        "url": f"https://{d}/",
+                        "homepage": f"https://{d}/",
+                        "snippet": "",
+                        "domain": d,
+                    }
+                    for d in domains
+                ],
+            )
+
+            def read_site(url, *_args, **_kwargs):
+                domain = url.split("/")[2]
+                if domain == "one-example.com":
+                    repository.set_candidate_selected(run_id, "two-example.com", False)
+                return self._lead(domain, url, domain)
+
+            scrape.side_effect = read_site
+
+            run_pipeline(config, resume_run_id=run_id)
+            statuses = {item["domain"]: item["status"] for item in repository.list_candidates(run_id)}
+            run_status = repository.run_status(run_id)["status"]
+            repository.engine.dispose()
+
+        self.assertEqual(scrape.call_count, 2)
+        self.assertEqual(statuses["two-example.com"], "cancelled")
+        self.assertEqual(statuses["three-example.com"], "completed")
+        self.assertEqual(run_status, "completed")
 
     @patch("app.pipeline.search_business_sites")
     @patch("app.pipeline.scrape_business_site")

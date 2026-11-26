@@ -6,7 +6,7 @@ export const runId = 'run-review-test'
 export const runDetail = {
   run: {
     id: runId, run_name: runName, status: 'completed',
-    counts: { candidates: 1, selected: 1, completed: 1, failed: 0 },
+    counts: { candidates: 2, selected: 2, completed: 1, off_market: 1, failed: 0 },
     created_at: '2026-07-16T10:00:00Z', updated_at: '2026-07-16T10:05:00Z',
   },
   candidates: [{
@@ -14,6 +14,12 @@ export const runDetail = {
     homepage: 'https://harleystreet.example', domain: 'harleystreet.example',
     snippet: 'Dental clinic | 90-92 Harley Street | London', status: 'completed', source: 'web', sources: ['web'],
     crawl_mode: 'deep', crawl_pages_checked: 7, crawl_page_limit: 20, crawl_contacts_found: 2,
+  }, {
+    title: 'Smile Chain Dental Group', url: 'https://smilechain.example',
+    homepage: 'https://smilechain.example', domain: 'smilechain.example',
+    snippet: 'Dental group | 300 clinics across the UK', status: 'off_market', source: 'web', sources: ['web'],
+    crawl_mode: 'deep', crawl_pages_checked: 3, crawl_page_limit: 20, crawl_contacts_found: 1,
+    market_fit_reason: 'A national chain of clinics, not an independent London practice.',
   }],
   leads: [{
     business_name: 'Harley Street Dental Studio', website: 'https://harleystreet.example',

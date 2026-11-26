@@ -50,7 +50,7 @@ class SearchProviderTests(unittest.TestCase):
 
         self.assertEqual(len(sites), 1)
         self.assertEqual(sites[0]["domain"], "studio-example.co.uk")
-        self.assertEqual(provider.calls, 5)
+        self.assertEqual(provider.calls, len(build_queries("salons", "London")))
         self.assertTrue(provider.closed)
 
     def test_hybrid_search_runs_local_and_web_together_and_merges_evidence(self):
@@ -193,9 +193,10 @@ class SearchProviderTests(unittest.TestCase):
             diagnostics=diagnostics,
         )
 
-        self.assertEqual(len(sites), 5)
-        self.assertEqual(diagnostics["previously_seen_filtered"], 5)
-        self.assertEqual(diagnostics["pages_searched"], 10)
+        queries = len(build_queries("salons", "London"))
+        self.assertEqual(len(sites), queries)
+        self.assertEqual(diagnostics["previously_seen_filtered"], queries)
+        self.assertEqual(diagnostics["pages_searched"], queries * 2)
         self.assertTrue(diagnostics["target_reached"])
         self.assertIn(1, provider.calls)
 

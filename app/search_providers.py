@@ -104,6 +104,12 @@ class OsmLocalProvider:
     ) -> list[dict[str, str]]:
         return self.service.search(niche, location, limit, offset)
 
+    def areas(self, location: str) -> list[str]:
+        return self.service.areas(location)
+
+    def find_names(self, names: list[str], location: str) -> list[dict[str, str]]:
+        return self.service.find_names(names, location)
+
 
 class HybridProvider(DdgsProvider):
     name = "hybrid"
@@ -122,6 +128,12 @@ class HybridProvider(DdgsProvider):
         if not status["ready"]:
             raise RuntimeError("The local discovery index is not ready")
         return self.local.search_market(niche, location, limit, offset)
+
+    def areas(self, location: str) -> list[str]:
+        return self.local.areas(location)
+
+    def find_names(self, names: list[str], location: str) -> list[dict[str, str]]:
+        return self.local.find_names(names, location)
 
 
 def create_provider(name: str, brave_api_key: str = "") -> SearchProvider:

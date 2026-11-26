@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import threading
 from datetime import UTC, datetime, timedelta
 from unittest import TestCase, mock
 
+from app import market
 from app.local_data import (
     LocalDataService,
     LocalDataSync,
     _data_timestamp,
     _expand_niche,
+    _niche_alternatives,
+    _niche_match_sql,
     _run_hidden,
     _sql_literal,
 )
@@ -75,8 +79,15 @@ class LocalDataTests(TestCase):
         local = clean_leads([_lead_from_osm(LocalDataService._candidate(OSM_ROW))])[0]
         self.assertEqual((local["latitude"], local["longitude"]), ("51.51", "-0.14"))
 
-        web_lead = {"business_name": "Elm Beauty Rooms", "website": "https://elmbeauty.co.uk/", "emails": [], "phones": []}
-        _merge_osm_seed(web_lead, {**LocalDataService._candidate(OSM_ROW), "homepage": "https://elmbeauty.co.uk/"})
+        web_lead = {
+            "business_name": "Elm Beauty Rooms",
+            "website": "https://elmbeauty.co.uk/",
+            "emails": [],
+            "phones": [],
+        }
+        _merge_osm_seed(
+            web_lead, {**LocalDataService._candidate(OSM_ROW), "homepage": "https://elmbeauty.co.uk/"}
+        )
         self.assertEqual((web_lead["latitude"], web_lead["longitude"]), ("51.51", "-0.14"))
 
     def test_hybrid_candidate_keeps_its_local_seed_for_enrichment(self):
@@ -96,6 +107,39 @@ class LocalDataTests(TestCase):
 
         self.assertIn("cafe", terms)
         self.assertNotIn("independent cafes", terms)
+
+    def test_every_word_of_a_market_must_match_not_just_the_category(self):
+        alternatives = _niche_alternatives("Iranian supermarkets")
+
+        self.assertEqual(alternatives, [[("iranian", "iran$"), ("supermarket",)]])
+        sql, _parameters = _niche_match_sql("Iranian supermarkets", lambda name: f"%({name})s", "%%")
+        self.assertIn(" AND ", sql)
+        self.assertNotIn("<%%", sql)
+
+    def test_market_words_match_the_start_of_words_in_names_and_categories(self):
+        _sql, parameters = _niche_match_sql("Iranian supermarket", lambda name: name, "%")
+        iranian, supermarket = (re.compile(value) for value in parameters.values())
+
+        self.assertTrue(iranian.search("iranian supermarket shop deli"))
+        self.assertTrue(iranian.search("tehran shop iran"))
+        self.assertFalse(iranian.search("mirandas shop supermarket"))
+        self.assertFalse(iranian.search("iranshahr shop supermarket"))
+        self.assertTrue(supermarket.search("aldi shop supermarket"))
+        self.assertFalse(supermarket.search("persian palace amenity restaurant"))
+
+    def test_synonyms_from_the_model_widen_each_word_of_the_market(self):
+        with mock.patch.dict(market._synonyms, {"iranian supermarket": {"iranian": ["persian"]}}):
+            _sql, parameters = _niche_match_sql("Iranian supermarket", lambda name: name, "%")
+        iranian = re.compile(next(iter(parameters.values())))
+
+        self.assertTrue(iranian.search("persian food shop supermarket"))
+        self.assertFalse(iranian.search("personal shopper supermarket"))
+
+    def test_single_word_markets_keep_fuzzy_matching(self):
+        sql, parameters = _niche_match_sql("dentists", lambda name: f"%({name})s", "%%")
+
+        self.assertIn("<%%", sql)
+        self.assertIn("dentist", parameters.values())
 
     @mock.patch("app.local_data.subprocess.run")
     def test_windows_child_processes_never_open_a_console(self, run):
@@ -123,8 +167,10 @@ class LocalDataTests(TestCase):
 
         run.side_effect = slow_update
         sync = LocalDataSync()
-        with mock.patch("app.local_data.LOCAL_DATA_SYNC", sync), \
-                mock.patch.object(LocalDataService, "_use_wsl_bridge", True):
+        with (
+            mock.patch("app.local_data.LOCAL_DATA_SYNC", sync),
+            mock.patch.object(LocalDataService, "_use_wsl_bridge", True),
+        ):
             result = LocalDataService().request_update()
             self.assertTrue(started.wait(5))
             self.assertEqual(result["status"], "started")
@@ -174,18 +220,24 @@ class LocalDataTests(TestCase):
 
     def test_data_date_comes_from_the_replication_state(self):
         self.assertEqual(
-            _data_timestamp({"import_timestamp": "2026-07-29T20:20:39Z", "replication_timestamp": "2026-11-23T21:21:17Z"}),
+            _data_timestamp(
+                {"import_timestamp": "2026-07-29T20:20:39Z", "replication_timestamp": "2026-11-23T21:21:17Z"}
+            ),
             "2026-11-23T21:21:17Z",
         )
-        self.assertEqual(_data_timestamp({"import_timestamp": "2026-07-29T20:20:39Z"}), "2026-07-29T20:20:39Z")
+        self.assertEqual(
+            _data_timestamp({"import_timestamp": "2026-07-29T20:20:39Z"}), "2026-07-29T20:20:39Z"
+        )
         self.assertIsNone(_data_timestamp({}))
 
     def test_a_running_status_left_by_an_interrupted_update_is_not_trusted(self):
         recorded = {"ready": True, "update_status": "running", "update_message": "Downloading"}
-        with mock.patch.object(LocalDataService, "_status", return_value=dict(recorded)), \
-                mock.patch.object(LocalDataService, "_use_wsl_bridge", True), \
-                mock.patch.object(LocalDataService, "update_service_active", return_value=False), \
-                mock.patch("app.local_data.LOCAL_DATA_SYNC", LocalDataSync()):
+        with (
+            mock.patch.object(LocalDataService, "_status", return_value=dict(recorded)),
+            mock.patch.object(LocalDataService, "_use_wsl_bridge", True),
+            mock.patch.object(LocalDataService, "update_service_active", return_value=False),
+            mock.patch("app.local_data.LOCAL_DATA_SYNC", LocalDataSync()),
+        ):
             status = LocalDataService().status()
 
         self.assertEqual(status["update_status"], "idle")

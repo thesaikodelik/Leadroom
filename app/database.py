@@ -48,10 +48,11 @@ SECRET_SETTING_KEYS = {"llm_api_key", "smtp_password", "email_accounts"}
 RUN_TERMINAL = {"completed", "cancelled", "failed", "stopped"}
 CANDIDATE_TRANSITIONS = {
     "queued": {"processing", "cancelled"},
-    "processing": {"completed", "no_contact", "failed", "queued", "cancelled"},
+    "processing": {"completed", "no_contact", "off_market", "failed", "queued", "cancelled"},
     "failed": {"queued", "processing", "cancelled"},
     "completed": set(),
     "no_contact": set(),
+    "off_market": set(),
     "cancelled": {"queued"},
 }
 _REPOSITORY_IMPORT_LOCK = threading.RLock()
@@ -306,6 +307,39 @@ class RunRepository:
                     {"reason": "Search stopped after it stopped reporting progress."},
                 )
             return len(rows)
+
+    def stop_orphaned_runs(self, active_run_ids: set[str], grace_seconds: int = 30) -> int:
+        """Stop runs left searching or reading with no job behind them.
+
+        A run reaches this state when the app closes mid-run or its worker ends
+        without finishing. Stopped runs keep their queue and their search position,
+        so Continue resumes them.
+        """
+        cutoff = _now() - timedelta(seconds=grace_seconds)
+        with self.sessions.begin() as session:
+            rows = (
+                session.query(RunRecord)
+                .filter(RunRecord.status.in_({"running", "searching"}), RunRecord.updated_at <= cutoff)
+                .all()
+            )
+            stopped = 0
+            for run in rows:
+                if run.id in active_run_ids:
+                    continue
+                for row in run.candidates:
+                    if row.status == "processing":
+                        row.status = "queued"
+                        row.lease_until = None
+                reason = (
+                    "The search stopped unexpectedly. Continue searches again."
+                    if run.status == "searching"
+                    else "Reading stopped unexpectedly. Continue picks up the remaining sites."
+                )
+                run.status = "stopped"
+                run.updated_at = _now()
+                self._event(session, run.id, "run_stopped", {"reason": reason})
+                stopped += 1
+            return stopped
 
     def delete_run(self, run_id: str) -> dict[str, str]:
         with self.sessions.begin() as session:
@@ -817,6 +851,22 @@ class RunRepository:
                 session.delete(row.lead)
             self._event(session, row.run_id, "candidate_no_contact", {"domain": row.domain})
 
+    def complete_off_market(self, candidate_id: int, reason: str) -> None:
+        """Keep a site that was read but is not part of the run's market out of its leads."""
+        with self.sessions.begin() as session:
+            row = session.get(CandidateRecord, candidate_id)
+            if row is None:
+                raise KeyError(f"Unknown candidate: {candidate_id}")
+            self._transition(row, "off_market")
+            row.lease_until = None
+            row.last_error = reason
+            source = json.loads(row.source_json or "{}")
+            source["market_fit_reason"] = reason
+            row.source_json = json.dumps(source, ensure_ascii=False)
+            if row.lead is not None:
+                session.delete(row.lead)
+            self._event(session, row.run_id, "candidate_off_market", {"domain": row.domain, "reason": reason})
+
     def fail(self, candidate_id: int, error: str) -> None:
         with self.sessions.begin() as session:
             row = session.get(CandidateRecord, candidate_id)
@@ -1049,8 +1099,7 @@ def _prepare_repository_lead(data: dict[str, Any]) -> dict[str, Any]:
         if (email := public_business_email(value, website))
     ]
     phones = unique_phones(
-        normalize_phone(value)
-        for value in [*_contact_values(data.get("phones")), data.get("phone", "")]
+        normalize_phone(value) for value in [*_contact_values(data.get("phones")), data.get("phone", "")]
     )
     prepared["emails"] = list(dict.fromkeys(emails))[:3]
     prepared["phones"] = phones

@@ -1,13 +1,15 @@
+import sqlite3
 import tempfile
 import time
 import unittest
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
-from app.api import _select_discovery_batch, create_app, make_run_name
+from app.api import _execute_run, _select_discovery_batch, create_app, make_run_name
 from app.config import ScraperConfig
 from app.database import RunRepository
 
@@ -53,7 +55,9 @@ class ApiTests(unittest.TestCase):
 
     def test_health_and_openapi(self):
         health = self.client.get("/api/v1/health").json()
-        self.assertEqual({key: health[key] for key in ("status", "database")}, {"status": "ok", "database": "ok"})
+        self.assertEqual(
+            {key: health[key] for key in ("status", "database")}, {"status": "ok", "database": "ok"}
+        )
         # The version lets the clean-machine test confirm which build is running after an update.
         self.assertTrue(health["version"])
         schema = self.client.get("/openapi.json").json()
@@ -475,9 +479,7 @@ class ApiTests(unittest.TestCase):
         get.return_value.raise_for_status.return_value = None
         get.return_value.json.return_value = {"data": [{"id": "paid-model"}]}
         post.return_value.raise_for_status.return_value = None
-        post.return_value.json.return_value = {
-            "choices": [{"message": {"content": "OK"}}]
-        }
+        post.return_value.json.return_value = {"choices": [{"message": {"content": "OK"}}]}
         payload = {
             "model_provider": "openai_compatible",
             "model_name": "paid-model",
@@ -652,9 +654,7 @@ class ApiTests(unittest.TestCase):
                 json={"model": "qwen2.5:7b"},
             ).json()
 
-        cancelled = self.client.post(
-            f"/api/v1/settings/ollama/pulls/{started['id']}/cancel"
-        )
+        cancelled = self.client.post(f"/api/v1/settings/ollama/pulls/{started['id']}/cancel")
 
         self.assertEqual(cancelled.status_code, 200)
         self.assertEqual(cancelled.json()["status"], "cancelled")
@@ -1037,7 +1037,9 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(drafts[0]["delivery_status"], "sent")
         self.assertEqual(drafts[0]["provider_message_id"], "<message-1@example.test>")
         # The sidebar's daily budget counts the same sends the limit enforces.
-        self.assertEqual(self.client.get("/api/v1/outreach/budget").json(), {"sent": 1, "reserved": 0, "limit": 25})
+        self.assertEqual(
+            self.client.get("/api/v1/outreach/budget").json(), {"sent": 1, "reserved": 0, "limit": 25}
+        )
 
     @patch("app.api.search_business_sites", return_value=[SITE])
     def test_candidate_selection_settings_and_missing_export(self, _search):
@@ -1213,6 +1215,72 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(continued.json()["kind"], "discovery")
         self.assertEqual(deleted.json(), {"id": run_id, "status": "deleted"})
         self.assertEqual(self.client.get(f"/api/v1/runs/{run_id}").status_code, 404)
+
+    def _running_run(self, minutes_idle: int = 5) -> str:
+        repo = RunRepository(self.database_path)
+        config = ScraperConfig(niche="salons", location="London", database_path=self.database_path)
+        run_id = repo.create_run(config)
+        repo.add_candidates(run_id, [SITE])
+        repo.recover_for_resume(run_id)
+        repo.claim(run_id, SITE["domain"])
+        repo.engine.dispose()
+        with closing(sqlite3.connect(self.database_path)) as db, db:
+            db.execute(
+                "update runs set updated_at = datetime('now', ?) where id = ?",
+                (f"-{minutes_idle} minutes", run_id),
+            )
+        return run_id
+
+    def test_running_run_without_a_worker_is_stopped_and_can_continue(self):
+        run_id = self._running_run()
+        self.app.state.executor.submit = MagicMock()
+
+        run = self.client.get(f"/api/v1/runs/{run_id}").json()
+        continued = self.client.post(f"/api/v1/runs/{run_id}/continue")
+
+        self.assertEqual(run["run"]["status"], "stopped")
+        self.assertEqual(run["candidates"][0]["status"], "queued")
+        self.assertEqual(continued.status_code, 202)
+        self.assertEqual(continued.json()["kind"], "enrichment")
+
+    def test_search_left_without_a_job_is_stopped_on_the_run_page(self):
+        repo = RunRepository(self.database_path)
+        config = ScraperConfig(niche="salons", location="London", database_path=self.database_path)
+        run_id = repo.create_run(config)
+        repo.engine.dispose()
+        with closing(sqlite3.connect(self.database_path)) as db, db:
+            db.execute(
+                "update runs set status = 'searching', updated_at = datetime('now', '-2 minutes') where id = ?",
+                (run_id,),
+            )
+
+        run = self.client.get(f"/api/v1/runs/{run_id}").json()["run"]
+
+        self.assertEqual(run["status"], "stopped")
+
+    def test_running_run_with_its_worker_is_left_running(self):
+        run_id = self._running_run()
+        self.app.state.enrichment_jobs[run_id] = "token"
+
+        runs = self.client.get("/api/v1/runs").json()
+
+        self.assertEqual(next(item for item in runs if item["id"] == run_id)["status"], "running")
+
+    @patch("app.api.run_pipeline", side_effect=RuntimeError("disk I/O error"))
+    def test_enrichment_error_stops_the_run_instead_of_leaving_it_running(self, _pipeline):
+        run_id = self._running_run(minutes_idle=0)
+        config = ScraperConfig(niche="salons", location="London", database_path=self.database_path)
+
+        with self.assertLogs("leadroom.runs", level="ERROR"):
+            _execute_run(config, run_id, lambda: True)
+
+        repo = RunRepository(self.database_path)
+        try:
+            self.assertEqual(repo.run_status(run_id)["status"], "stopped")
+            stopped = [row for row in repo.list_events(run_id, 0) if row["event"] == "run_stopped"]
+            self.assertIn("disk I/O error", stopped[-1]["data"]["reason"])
+        finally:
+            repo.engine.dispose()
 
     def test_terminal_run_event_stream_closes(self):
         repo = RunRepository(self.database_path)

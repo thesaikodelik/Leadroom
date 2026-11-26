@@ -183,7 +183,7 @@ th[aria-sort="ascending"] .sort-button svg, th[aria-sort="descending"] .sort-but
 .status-running::before, .status-processing::before, .status-searching::before { animation: pulse 1.6s ease-in-out infinite; }
 .status-ready, .status-queued { color: var(--warn); background: var(--warn-soft); }
 .status-failed, .status-blocked { color: var(--danger); background: var(--danger-soft); }
-.status-cancelled, .status-stopped, .status-no_contact, .status-created { color: var(--muted); background: var(--sheet-3); }
+.status-cancelled, .status-stopped, .status-no_contact, .status-off_market, .status-created { color: var(--muted); background: var(--sheet-3); }
 .status-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--rule-strong); }
 .dot-completed { background: var(--ok); }
 .dot-processing, .dot-running { background: var(--action); animation: pulse 1.6s ease-in-out infinite; }

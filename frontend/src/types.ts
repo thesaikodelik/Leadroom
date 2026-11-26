@@ -52,6 +52,7 @@ export interface Candidate {
   crawl_page_limit?: number
   crawl_current_url?: string
   crawl_contacts_found?: number
+  market_fit_reason?: string
   source?: string
   sources?: Array<'local' | 'web'>
   osm_url?: string
@@ -129,6 +130,8 @@ export interface Lead {
   address?: string
   latitude?: string
   longitude?: string
+  market_fit?: 'match' | 'unclear' | 'off_market' | ''
+  market_fit_reason?: string
   enrichment_errors: string[]
 }
 

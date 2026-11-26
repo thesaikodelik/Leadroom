@@ -63,8 +63,12 @@ websites still goes over the internet, of course.
 Type a **business niche** and a **location**, and pick how wide to search.
 
 - **Sources:** the web, a private local map index, or both at once.
+- **A wide search:** Leadroom searches the market in the other words a business might use
+  (*Persian* for *Iranian*), district by district across the city, and reads directories and
+  "best of" lists for the businesses they name.
 - **Unseen sites only:** a new run in the same market skips every domain you have already found.
-- **Crawl depth:** *Quick* (6 pages a site), *Deep* (20 pages) or *Exhaustive* (40 pages).
+- **Crawl depth:** *Quick* (up to 6 pages a site), *Deep* (up to 20) or *Exhaustive* (up to 40).
+  Leadroom stops reading a site once it has found its contacts.
 - A **live brief** on the right sums up what the run will do before you start.
 
 <br clear="right">
@@ -78,14 +82,24 @@ aggregators and anything outside your target market, then start enrichment for t
 
 - Follow each site's **progress**, errors and evidence while it runs.
 - **Stop** and **continue** whenever you like; progress is saved after every site.
-- Need more? **Continue** the same run for the next batch of unseen businesses.
+- Need more? **Continue** the same run: each search covers the next districts and the
+  businesses the last lists named.
 
 <br clear="right">
 
 ### 3. Let it read the websites for you
 
+<img src="docs/screenshots/run-reading.png" align="right" width="52%" alt="The Reading tab of a dental clinics run: the pages read and contacts found for each site, and two sites set aside as Not a match because they never mention dental care">
+
 For each business, Leadroom stays on its own domain and reads the pages that matter first:
 contact, about, services and locations, plus the sitemap.
+
+It also checks that the business belongs to your market. A site that never mentions what
+narrows it (the *Iranian* in *Iranian supermarket*) is set aside as **Not a match**, with the
+reason, and stays out of your leads. A site that names the market in other words is kept
+and marked for a quick check.
+
+<br clear="right">
 
 | Step | What happens |
 | --- | --- |

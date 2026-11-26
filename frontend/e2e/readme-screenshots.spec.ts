@@ -6,7 +6,7 @@ import { expect, test } from '@playwright/test'
 const outputDir = path.resolve(process.cwd(), '../docs/screenshots')
 
 const runs = [
-  { id: 'readme-run', run_name: 'london_dental_clinics_20260721_104500', niche: 'dental clinics', location: 'London UK', crawl_mode: 'deep', search_provider: 'hybrid', status: 'completed', counts: { completed: 4, no_contact: 1, cancelled: 2 }, created_at: '2026-07-21T10:45:00Z', updated_at: '2026-07-21T11:03:00Z' },
+  { id: 'readme-run', run_name: 'london_dental_clinics_20260721_104500', niche: 'dental clinics', location: 'London UK', crawl_mode: 'deep', search_provider: 'hybrid', status: 'completed', counts: { completed: 4, no_contact: 1, off_market: 2, cancelled: 2 }, created_at: '2026-07-21T10:45:00Z', updated_at: '2026-07-21T11:03:00Z' },
   { id: 'readme-hvac', run_name: 'hvac_contractors_20260720_153000', niche: 'HVAC contractors', location: 'Manchester UK', crawl_mode: 'quick', search_provider: 'auto', status: 'ready', counts: { completed: 10, queued: 10, cancelled: 4 }, created_at: '2026-07-20T15:30:00Z', updated_at: '2026-07-20T15:51:00Z' },
   { id: 'readme-studio', run_name: 'creative_studios_20260719_091500', niche: 'creative studios', location: 'Bristol UK', crawl_mode: 'deep', search_provider: 'hybrid', status: 'stopped', counts: { completed: 19, failed: 2, queued: 7, cancelled: 3 }, created_at: '2026-07-19T09:15:00Z', updated_at: '2026-07-19T09:48:00Z' },
 ]
@@ -31,6 +31,16 @@ const candidates = leads.map((lead, index) => ({
   crawl_pages_checked: 8 + index,
   crawl_page_limit: 20,
   crawl_contacts_found: lead.emails.length + lead.phones.length,
+}))
+
+// Sites that were read but are not part of the market: set aside with the reason.
+const setAside = [
+  { title: 'Glow Aesthetics Clinic', domain: 'glow-aesthetics.example', pages: 5, contacts: 2, reason: 'The site never mentions dental.' },
+  { title: 'Smileline Group', domain: 'smileline-group.example', pages: 3, contacts: 1, reason: 'The site never mentions dental.' },
+].map((site) => ({
+  title: site.title, url: `https://${site.domain}`, homepage: `https://${site.domain}`, domain: site.domain,
+  snippet: 'London', status: 'off_market', source: 'web', sources: ['web'], crawl_mode: 'deep',
+  crawl_pages_checked: site.pages, crawl_page_limit: 20, crawl_contacts_found: site.contacts, market_fit_reason: site.reason,
 }))
 
 const settings = {
@@ -61,7 +71,7 @@ test('capture privacy-safe README screenshots', async ({ page }, testInfo) => {
     if (pathname === '/api/v1/settings/ollama/catalog') return route.fulfill({ json: { status: 'ok', selected_model: 'llama3.2:3b', installed: ['llama3.2:3b', 'qwen2.5:7b'], models: [] } })
     if (pathname === '/api/v1/local-data/status') return route.fulfill({ json: { ready: true, database: 'online', message: 'Local discovery is ready.', businesses: 1240000, with_website: 612000, with_phone: 804000, with_email: 186000, dataset: 'OpenStreetMap Great Britain', update_status: 'idle', update_schedule: 'Daily at 03:30' } })
     if (pathname === '/api/v1/discovery/history') return route.fulfill({ json: { previous_runs: 3, seen_domains: 46, completed_leads: 31 } })
-    if (pathname === '/api/v1/runs/readme-run') return route.fulfill({ json: { run: { ...runs[0], discovery: { mode: 'new_only', next_search_page: 4, web_candidates: 11, local_candidates: 7 } }, candidates, leads } })
+    if (pathname === '/api/v1/runs/readme-run') return route.fulfill({ json: { run: { ...runs[0], discovery: { mode: 'new_only', next_search_page: 4, new_candidates: 9, previously_seen_filtered: 12, pages_searched: 24, web_candidates: 11, local_candidates: 7 } }, candidates: [...candidates, ...setAside], leads } })
     if (pathname === '/api/v1/runs') return route.fulfill({ json: runs })
     if (pathname === '/api/v1/repository') return route.fulfill({ json: { count: leads.length, leads } })
     if (pathname === '/api/v1/compliance/suppressions') return route.fulfill({ json: [{ id: 'suppression-demo', type: 'email', value_hint: 'o***@example.test', reason: 'Demo opt-out', created_at: '2026-07-20T12:00:00Z' }] })
@@ -93,6 +103,11 @@ test('capture privacy-safe README screenshots', async ({ page }, testInfo) => {
   await page.waitForTimeout(6000)
   await page.locator('.leads-map').scrollIntoViewIfNeeded()
   await page.screenshot({ path: path.join(outputDir, 'run-map.png'), fullPage: false })
+  // The Reading tab: pages read per site, and sites set aside as outside the market.
+  await page.getByRole('tab', { name: /Reading/ }).click()
+  await page.waitForTimeout(400)
+  await page.locator('.run-page .tabs').scrollIntoViewIfNeeded()
+  await page.screenshot({ path: path.join(outputDir, 'run-reading.png'), fullPage: false })
   await capture('/repository', 'repository', 'Repository')
   await capture('/outreach', 'outreach', 'Outreach review')
   await capture('/settings', 'settings', 'Settings')

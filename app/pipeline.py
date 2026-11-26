@@ -4,6 +4,9 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from sqlalchemy.exc import OperationalError
+
+from app import market
 from app.config import ScraperConfig
 from app.database import RunRepository
 from app.export import save_run
@@ -29,6 +32,12 @@ def run_pipeline(
     active_check: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     repository = RunRepository(config.database_path)
+    if cancel_check is not None:
+        raw_cancel_check = cancel_check
+
+        def cancel_check() -> bool:
+            return _retry_busy(raw_cancel_check)
+
     if resume_run_id:
         config = repository.load_config(resume_run_id)
         run_id = resume_run_id
@@ -58,6 +67,8 @@ def run_pipeline(
         sites = repository.list_candidates(run_id)
         raw_leads = []
 
+    market.prepare(config)
+
     print(f"\nFound {len(sites)} candidate websites:\n")
     for index, site in enumerate(sites[: config.max_sites], start=1):
         print(f"{index}. {site['title']}")
@@ -75,7 +86,12 @@ def run_pipeline(
             print("\nRun cancelled before the next site.")
             break
         url = site["homepage"]
-        candidate_id = repository.claim(run_id, site["domain"])
+        try:
+            candidate_id = _retry_busy(lambda domain=site["domain"]: repository.claim(run_id, domain))
+        except ValueError as exc:
+            # The site was deselected or already read after this pass began.
+            print(f"Skipped {site['domain']}: {exc}")
+            continue
         if config.discovery_mode == "reuse" and config.reuse_existing_leads:
             cached_lead = repository.find_cached_lead(site["domain"], exclude_run_id=run_id)
             if cached_lead:
@@ -118,6 +134,13 @@ def run_pipeline(
             if _has_local_seed(site):
                 _merge_osm_seed(lead, site)
             attach_search_metadata(lead, site)
+            if lead.get("market_fit") == "off_market":
+                repository.complete_off_market(
+                    candidate_id, str(lead.get("market_fit_reason") or "Not part of this market")
+                )
+                print(f"Not in the market: {url} ({lead.get('market_fit_reason')})")
+                time.sleep(config.delay_seconds)
+                continue
             raw_leads.append(lead)
             if is_contactable_lead(lead):
                 repository.complete(candidate_id, lead)
@@ -175,6 +198,18 @@ def run_pipeline(
         print("\nNo clean leads saved.")
     print(f"Saved raw output to {json_path}")
     return output
+
+
+def _retry_busy[T](action: Callable[[], T], attempts: int = 4, pause: float = 1.5) -> T:
+    """Run a database step again when SQLite is briefly busy with another writer."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return action()
+        except OperationalError as exc:
+            if attempt == attempts or "locked" not in str(exc).lower():
+                raise
+            time.sleep(pause * attempt)
+    raise AssertionError("unreachable")
 
 
 def _lead_from_osm(site: dict[str, Any]) -> dict[str, Any]:
