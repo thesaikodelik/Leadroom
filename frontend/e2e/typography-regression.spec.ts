@@ -1,41 +1,32 @@
 import { expect, test } from '@playwright/test'
 import { mockWorkspaceData } from './run-fixture'
 
-const routes = ['/runs', '/new', '/repository', '/outreach', '/settings']
+const routes = ['/runs', '/new', '/repository', '/outreach', '/settings', '/local-data']
 
+// The Survey Field Book type system: Public Sans for text, Barlow Condensed caps for
+// labels, Roboto Mono for numbers, on one size scale (frontend/src/styles/tokens.css).
 test('primary screens use the shared typography system', async ({ page }) => {
   await mockWorkspaceData(page)
 
   for (const route of routes) {
     await page.goto(route)
+    await page.waitForLoadState('networkidle')
 
     const violations = await page.locator('body').evaluate((body) => {
-      const allowedSizes = new Set(['12px', '14px', '18px', '36px'])
-      const allowedWeights = new Set(['400', '500', '600', '700'])
+      const families = ['Public Sans Variable', 'Barlow Condensed', 'Roboto Mono Variable']
+      const sizes = new Set(['11px', '12px', '12.5px', '14px', '15.5px', '17px', '18px', '22px', '24px', '26px', '30px', '32px'])
+      const weights = new Set(['400', '500', '600', '700'])
+      const ownText = (element: Element) => [...element.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim())
 
       return [...body.querySelectorAll('*')].flatMap((element) => {
-        if (!(element instanceof HTMLElement) && !(element instanceof SVGElement)) return []
+        if (!ownText(element) || element.closest('.sr-only')) return []
         const style = getComputedStyle(element)
-        const familyIsValid =
-          style.fontFamily.includes('DM Sans Variable') ||
-          style.fontFamily.includes('Source Code Pro Variable')
-        const spacingIsValid = style.letterSpacing === 'normal' || style.letterSpacing === '0px'
-        if (
-          familyIsValid &&
-          allowedSizes.has(style.fontSize) &&
-          allowedWeights.has(style.fontWeight) &&
-          spacingIsValid
-        ) return []
-
-        return [{
-          tag: element.tagName,
-          className: element.getAttribute('class') ?? '',
-          text: element.textContent?.trim().slice(0, 50) ?? '',
-          family: style.fontFamily,
-          size: style.fontSize,
-          weight: style.fontWeight,
-          spacing: style.letterSpacing,
-        }]
+        const family = style.fontFamily.split(',')[0].replaceAll('"', '').trim()
+        const tracking = style.letterSpacing === 'normal' ? 0 : Number.parseFloat(style.letterSpacing)
+        // Only condensed caps are tracked open; headings may tighten slightly.
+        const trackingIsValid = family === 'Barlow Condensed' ? tracking > 0 : tracking <= 0 && tracking >= -0.04 * Number.parseFloat(style.fontSize)
+        if (families.includes(family) && sizes.has(style.fontSize) && weights.has(style.fontWeight) && trackingIsValid) return []
+        return [{ tag: element.tagName, className: element.getAttribute('class') ?? '', text: element.textContent?.trim().slice(0, 40) ?? '', family, size: style.fontSize, weight: style.fontWeight, spacing: style.letterSpacing }]
       })
     })
 

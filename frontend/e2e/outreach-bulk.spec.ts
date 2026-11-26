@@ -9,6 +9,7 @@ test('builds and approves an outreach batch without repeating lead forms', async
   page.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()) })
 
   await page.route('**/api/v1/health', (route) => route.fulfill({ json: { status: 'ok', database: 'ok' } }))
+  await page.route('**/api/v1/outreach/budget', (route) => route.fulfill({ json: { sent: 0, reserved: 0, limit: 25 } }))
   await page.route('**/api/v1/updates', (route) => route.fulfill({ json: { current_version: '0.1.3', phase: 'idle', version: null, page: '', notes: '', progress: 0, error: '', postponed: false, installed: true, enabled: true } }))
   await page.route('**/api/v1/settings', (route) => route.fulfill({ json: { workspace_name: 'Leadroom', workspace_subtitle: 'Signal desk', logo_data_url: '', email_configured: true, email_accounts: [{ id: 'sales-mailbox', label: 'Northstar Sales', from_email: 'sales@northstar.example', is_default: true }], default_email_account_id: 'sales-mailbox' } }))
   await page.route('**/api/v1/settings/email-accounts', (route) => route.fulfill({ json: { accounts: [{ id: 'sales-mailbox', label: 'Northstar Sales', host: 'smtp.example.test', port: 587, security: 'starttls', username: 'sales@northstar.example', password_configured: true, from_email: 'sales@northstar.example', from_name: 'Northstar Sales', reply_to: '', is_default: true }], default_account_id: 'sales-mailbox' } }))

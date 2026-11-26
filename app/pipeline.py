@@ -256,6 +256,10 @@ def _merge_osm_seed(lead: dict[str, Any], site: dict[str, Any]) -> None:
     )
     emails = [value for value in [lead.get("generic_email"), osm_email] if value]
     phones = [value for value in [lead.get("phone"), normalize_phone(site.get("phone"))] if value]
+    for key in ("address", "latitude", "longitude"):
+        value = str(site.get(key) or "").strip()
+        if value and not lead.get(key):
+            lead[key] = value
     lead["emails"] = list(dict.fromkeys([*(lead.get("emails") or []), *emails]))[:3]
     lead["generic_email"] = lead["emails"][0] if lead["emails"] else ""
     lead["phones"] = unique_phones([*(lead.get("phones") or []), *phones])

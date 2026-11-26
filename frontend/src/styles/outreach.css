@@ -1,0 +1,294 @@
+/* outreach: written in the Survey Field Book world on top of tokens.css and base.css.
+ * The page reads top to bottom as the review flow: campaign brief, the drafts with one
+ * status each, the approval controls, then sending inside the day's budget. */
+
+/* ---------- Workspace data states ---------- */
+.dependency-state {
+  display: flex; align-items: center; gap: 10px; margin: 0 0 var(--space-3); padding: 10px 14px;
+  border: 1px solid var(--hair); border-radius: var(--radius); background: var(--sheet); color: var(--muted); font-size: var(--type-caption);
+}
+.dependency-state > svg { width: 16px; height: 16px; flex: none; color: var(--ev-4); }
+.dependency-state a { font-weight: var(--weight-semibold); }
+.dependency-error { display: grid; gap: var(--space-2); margin: 0 0 var(--space-4); }
+.dependency-error .error-panel { margin: 0; }
+.dependency-error > .button { justify-self: start; }
+
+/* ---------- The principle, stated once ---------- */
+.outreach-page .compliance-notice {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px;
+  margin: 0 0 var(--space-5); padding: 14px 18px;
+  border: 1px solid var(--hair); border-radius: var(--radius-lg); background: var(--sheet); box-shadow: var(--shadow-1);
+}
+.compliance-notice .notice-icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: var(--radius); background: var(--sheet-3); color: var(--ev-4); }
+.compliance-notice .notice-icon svg { width: 18px; height: 18px; }
+.compliance-notice > div { display: grid; gap: 2px; min-width: 0; }
+.compliance-notice > div strong { color: var(--text); }
+.compliance-notice > div p { color: var(--muted); font-size: var(--type-caption); max-width: 78ch; }
+.compliance-notice .notice-badge {
+  height: auto; min-width: 0; padding: 0; display: grid; justify-items: end; gap: 3px; border-radius: 0; background: none;
+  color: var(--ev-4); font: var(--weight-semibold) 12.5px/1.1 var(--font-label); text-transform: uppercase; letter-spacing: var(--label-tracking); white-space: nowrap;
+}
+.compliance-notice .notice-badge small { color: var(--muted); font: var(--weight-regular) var(--type-caption)/1.3 var(--font-ui); text-transform: none; letter-spacing: 0; }
+.compliance-notice .notice-badge small strong { color: var(--text); font: var(--weight-medium) var(--type-caption) var(--font-mono); }
+.compliance-notice .notice-badge small .num { font-family: var(--font-mono); }
+
+/* ---------- Bulk or single: a segmented choice ---------- */
+.outreach-mode-switch {
+  display: inline-grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; margin: 0 0 var(--space-4); padding: 3px;
+  border: 1px solid var(--hair); border-radius: var(--radius); background: var(--sheet-3);
+}
+.outreach-mode-switch button {
+  min-width: 212px; padding: 8px 14px; display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; column-gap: 10px; text-align: left;
+  border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font-weight: var(--weight-semibold); cursor: pointer;
+  transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease, box-shadow var(--dur-fast) ease;
+}
+.outreach-mode-switch button svg { width: 17px; height: 17px; grid-row: 1 / 3; }
+.outreach-mode-switch button small { color: var(--muted); font-weight: var(--weight-regular); }
+.outreach-mode-switch button:hover { color: var(--text); }
+.outreach-mode-switch button[aria-pressed="true"] { background: var(--sheet); color: var(--text); box-shadow: var(--shadow-1); }
+.outreach-mode-switch button[aria-pressed="true"] svg { color: var(--action); }
+
+/* ---------- Campaign brief and suppression list ---------- */
+.compliance-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 340px); gap: var(--space-5); align-items: start; }
+.compliance-form.panel { min-width: 0; padding: 0; overflow: hidden; }
+.compliance-form > header { padding: 20px 24px 16px; }
+.compliance-form > header > div { display: grid; gap: 4px; }
+.compliance-form > header p { color: var(--muted); }
+.brief-group { min-width: 0; margin: 0; padding: 16px 24px 22px; border: 0; border-top: 1px solid var(--hair); }
+.brief-group > legend { float: left; width: 100%; margin: 0 0 12px; padding: 0; }
+.brief-group > .form-grid { clear: both; }
+.compliance-form .form-grid { gap: 14px var(--space-4); }
+.compliance-form textarea { min-height: 96px; }
+.compliance-form .campaign-links { min-height: 68px; font-family: var(--font-mono); font-size: var(--type-caption); }
+.compliance-form > .error-panel { margin: 0 24px var(--space-4); }
+.compliance-form > footer {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: 14px 24px;
+  border-top: 1px solid var(--hair); background: var(--sheet-2);
+}
+.compliance-form > footer > small { color: var(--muted); max-width: 52ch; }
+
+/* Preflight: every lead in the run, ready or blocked, before any draft exists */
+.bulk-preflight { margin: 0 24px 22px; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--sheet); overflow: hidden; }
+.preflight-summary { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: 6px 6px 6px 14px; border-bottom: 1px solid var(--hair); background: var(--sheet-2); }
+.preflight-summary p { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--muted); font-size: var(--type-caption); }
+.preflight-summary p strong { color: var(--text); font: var(--weight-medium) var(--type-body) var(--font-mono); }
+.preflight-summary .preflight-ready strong { color: var(--ok); }
+.preflight-summary .preflight-blocked strong { color: var(--danger); }
+.preflight-summary .button { min-height: 32px; padding: 0 10px; font-size: var(--type-caption); }
+.preflight-list { max-height: 320px; overflow-y: auto; }
+.preflight-row {
+  display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 9px 14px;
+  border-bottom: 1px solid var(--hair); font-weight: var(--weight-regular); cursor: pointer; transition: background-color var(--dur-fast) ease;
+}
+.preflight-row:last-child { border-bottom: 0; }
+.preflight-row:hover { background: var(--sheet-2); }
+.preflight-row:has(input:checked) { background: var(--action-soft); }
+.preflight-row > span { display: grid; gap: 1px; min-width: 0; }
+.preflight-row > span strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preflight-row > span small { color: var(--muted); overflow-wrap: anywhere; }
+.preflight-row > em { font-style: normal; }
+.preflight-row.blocked { cursor: default; }
+.preflight-row.blocked:hover { background: transparent; }
+.preflight-row.blocked > span strong { color: var(--text-2); }
+.preflight-row.blocked > em { max-width: 280px; display: inline-flex; align-items: flex-start; gap: 6px; color: var(--danger); font-size: var(--type-caption); font-weight: var(--weight-medium); text-align: right; }
+.preflight-row.blocked > em svg { width: 14px; height: 14px; flex: none; margin-top: 2px; }
+
+/* Suppression list */
+.suppression-form > .form-grid { grid-template-columns: minmax(0, 1fr); padding: 0 20px 16px; }
+.suppression-form > header { padding: 20px 20px 14px; }
+.suppression-form .span-2 { grid-column: auto; }
+.suppression-form > .error-panel { margin: 0 20px var(--space-3); }
+.suppression-form > .button { margin: 0 20px 18px; }
+.suppression-list { max-height: 360px; overflow-y: auto; border-top: 1px solid var(--hair); }
+.suppression-list > div { display: grid; gap: 2px; padding: 10px 20px; border-bottom: 1px solid var(--hair); }
+.suppression-list > div:last-child { border-bottom: 0; }
+.suppression-list strong { font: var(--weight-medium) var(--type-caption) var(--font-mono); color: var(--text); overflow-wrap: anywhere; }
+.suppression-list small { display: flex; align-items: baseline; gap: 8px; color: var(--muted); }
+.suppression-kind { flex: none; font: var(--weight-semibold) var(--type-micro)/1.6 var(--font-label); text-transform: uppercase; letter-spacing: var(--label-tracking); color: var(--muted); }
+.suppression-list > .muted { padding: 12px 20px; font-size: var(--type-caption); }
+.suppression-list > .error-panel { margin: 12px 20px; }
+
+/* ---------- Draft audit queue ---------- */
+.outreach-list { margin-top: var(--space-7); }
+.outreach-queue-head { align-items: flex-end; flex-wrap: wrap; margin: 0 0 var(--space-3); }
+.outreach-queue-head > div { display: grid; gap: 4px; min-width: 0; }
+.queue-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; color: var(--muted); font-size: var(--type-caption); }
+.queue-summary strong, .queue-budget strong { color: var(--text); font: var(--weight-medium) var(--type-caption) var(--font-mono); }
+.queue-count { display: inline-flex; align-items: center; gap: 5px; }
+.queue-count i { width: 7px; height: 7px; border-radius: 50%; background: var(--rule-strong); }
+.queue-approved i { background: var(--ev-3); }
+.queue-sent i, .queue-exported i { background: var(--ev-4); }
+.queue-queued i, .queue-sending i { background: var(--action); }
+.queue-uncertain i { background: var(--warn-strong); }
+.queue-blocked i { background: var(--danger); }
+.outreach-queue-head > .queue-budget { color: var(--muted); font-size: var(--type-caption); }
+.queue-budget .num { font-family: var(--font-mono); }
+
+/* Delivery progress */
+.send-queue { display: grid; gap: 10px; margin: 0 0 var(--space-3); padding: 14px 16px; border: 1px solid var(--hair); border-radius: var(--radius-lg); background: var(--sheet); box-shadow: var(--shadow-1); }
+.send-queue > div:first-child { display: flex; align-items: center; gap: 12px; }
+.send-queue > div:first-child > span { min-width: 0; margin-right: auto; display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 2px 10px; }
+.send-queue > div:first-child svg { width: 17px; height: 17px; grid-row: 1 / 3; color: var(--action); }
+.send-queue > div:first-child small { color: var(--muted); font-size: var(--type-caption); font-variant-numeric: tabular-nums; }
+.send-queue > div:first-child em { font: var(--weight-medium) var(--type-heading) var(--font-mono); font-style: normal; color: var(--text); }
+.send-queue .progress-track { margin: 0; }
+.send-queue > .button { justify-self: start; min-height: 32px; font-size: var(--type-caption); }
+.send-completed > div:first-child svg, .send-completed > div:first-child em { color: var(--ok); }
+.send-completed .progress-track span { background: var(--ev-4); }
+.send-failed { border-color: var(--danger-line); }
+.send-failed > div:first-child svg { color: var(--danger); }
+.send-failed .progress-track span { background: var(--danger); }
+.send-stopped > div:first-child svg { color: var(--muted); }
+
+/* The one decision bar for a selection: approve drafts, or send approved ones */
+.bulk-audit-toolbar {
+  position: sticky; top: 68px; z-index: 20; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 12px;
+  margin: 0 0 var(--space-3); padding: 12px 12px 12px 16px;
+  border: 1px solid var(--action-line); border-radius: var(--radius-lg); background: var(--sheet); box-shadow: var(--shadow-2);
+}
+.bulk-audit-toolbar > div:first-child { min-width: 150px; margin-right: auto; align-self: center; display: grid; gap: 2px; }
+.bulk-audit-toolbar > div:first-child strong { font-variant-numeric: tabular-nums; }
+.bulk-audit-toolbar > div:first-child small { color: var(--muted); }
+.bulk-audit-toolbar > label:not(.checkbox-label) { min-width: 170px; gap: 4px; font-size: var(--type-caption); }
+.bulk-audit-toolbar input:not([type="checkbox"]), .bulk-audit-toolbar select { min-height: 36px; }
+.outreach-sender-select { min-width: 220px; display: grid; gap: 4px; }
+.outreach-sender-select > span { font-size: var(--type-caption); font-weight: var(--weight-semibold); }
+.bulk-audit-toolbar .button { min-height: 36px; }
+.bulk-audit-toolbar > .icon-button { align-self: center; }
+
+/* Selected against what is left of today's 25 */
+.send-tally { align-self: center; display: grid; gap: 5px; }
+.send-tally-cells { display: flex; gap: 2px; }
+.send-tally-cells i { width: 5px; height: 14px; border-radius: 1px; background: var(--rule); }
+.send-tally-cells i.used { background: var(--ev-3); }
+.send-tally-cells i.selected { background: var(--action); }
+.send-tally small { color: var(--muted); white-space: nowrap; }
+.send-tally small strong { color: var(--text); font: var(--weight-medium) var(--type-caption) var(--font-mono); }
+.send-tally small .num { font-family: var(--font-mono); }
+.send-tally.is-over small, .send-tally.is-over small strong { color: var(--danger); }
+
+/* Checkbox chips shared by the bar and each draft */
+.bulk-audit-toolbar .checkbox-label, .approval-controls .checkbox-label {
+  min-height: 36px; padding: 0 11px; gap: 8px; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--sheet);
+  font-size: var(--type-caption); white-space: nowrap; cursor: pointer; transition: background-color var(--dur-fast) ease, border-color var(--dur-fast) ease;
+}
+.bulk-audit-toolbar .checkbox-label:hover, .approval-controls .checkbox-label:hover { border-color: var(--rule-strong); }
+.bulk-audit-toolbar .checkbox-label:has(input:checked), .approval-controls .checkbox-label:has(input:checked) { border-color: var(--action-line); background: var(--action-soft); }
+
+/* ---------- One draft ---------- */
+.outreach-row {
+  margin: 0 0 10px; background: var(--sheet); border: 1px solid var(--hair); border-radius: var(--radius-lg); box-shadow: var(--shadow-1); overflow: hidden;
+  transition: border-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease;
+}
+.outreach-row.selected { border-color: var(--action); box-shadow: 0 0 0 3px var(--action-soft); }
+.outreach-head { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 16px 18px 0; }
+.outreach-head > div { display: grid; gap: 3px; min-width: 0; }
+.outreach-head > div strong { font-size: var(--type-lead); line-height: 1.35; overflow-wrap: anywhere; }
+.outreach-head > div small { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; color: var(--muted); overflow-wrap: anywhere; }
+.outreach-domain { font-family: var(--font-mono); font-size: var(--type-micro); }
+.outreach-head > .status { margin-top: 2px; }
+
+.audit-selector { position: relative; display: block; width: 20px; height: 20px; margin-top: 2px; cursor: pointer; }
+.audit-selector > input { position: absolute; inset: 0; width: 20px; height: 20px; min-height: 0; margin: 0; opacity: 0; cursor: pointer; }
+.audit-selector > span {
+  width: 20px; height: 20px; display: grid; place-items: center; border: 1.5px solid var(--rule-strong); border-radius: var(--radius-sm);
+  background: var(--sheet); color: transparent; transition: background-color var(--dur-fast) ease, border-color var(--dur-fast) ease;
+}
+.audit-selector > span svg { width: 13px; height: 13px; }
+.audit-selector:hover > input:not(:disabled) + span { border-color: var(--action); }
+.audit-selector > input:checked + span { border-color: var(--action); background: var(--action); color: var(--on-action); }
+.audit-selector > input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 2px; }
+.audit-selector > input:disabled { cursor: default; }
+.audit-selector > input:disabled + span { border: 1px dashed var(--rule); background: transparent; }
+
+.delivery-error { display: flex; align-items: flex-start; gap: 9px; margin: 12px 18px 0 52px; padding: 10px 12px; border: 1px solid var(--danger-line); border-radius: var(--radius); background: var(--danger-soft); }
+.delivery-error > svg { width: 16px; height: 16px; flex: none; margin-top: 2px; color: var(--danger); }
+.delivery-error span { display: grid; gap: 2px; min-width: 0; }
+.delivery-error strong { color: var(--danger); font-size: var(--type-caption); }
+.delivery-error small { color: var(--text-2); overflow-wrap: anywhere; }
+
+/* The message itself, as the recipient will read it */
+.outreach-message { padding: 12px 18px 16px 52px; }
+.outreach-message pre {
+  max-width: 76ch; margin: 0 0 12px; padding: 12px 16px 14px; white-space: pre-wrap; overflow-wrap: anywhere;
+  border: 1px solid var(--hair); border-radius: var(--radius); color: var(--text);
+  font: var(--weight-regular) var(--type-body)/1.6 var(--font-ui);
+  background: var(--sheet-2);
+}
+.audit-note { display: grid; gap: 2px; max-width: 76ch; }
+.audit-note small { font-family: var(--font-label); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: var(--label-tracking); color: var(--muted); }
+.audit-note p { color: var(--text-2); font-size: var(--type-caption); overflow-wrap: anywhere; }
+details.outreach-message { padding-top: 8px; padding-bottom: 12px; }
+details.outreach-message > summary {
+  display: inline-flex; align-items: center; gap: 6px; list-style: none; cursor: pointer;
+  color: var(--action); font-size: var(--type-caption); font-weight: var(--weight-semibold); border-radius: var(--radius-sm);
+}
+details.outreach-message > summary::-webkit-details-marker { display: none; }
+details.outreach-message > summary svg { width: 14px; height: 14px; transition: transform var(--dur) var(--ease-out); }
+details.outreach-message[open] > summary { margin-bottom: 10px; }
+details.outreach-message[open] > summary svg { transform: rotate(90deg); }
+details.outreach-message > summary span { margin-left: 8px; color: var(--muted); font-weight: var(--weight-regular); font-variant-numeric: tabular-nums; }
+
+/* Approval: three explicit checks, then one button */
+.approval-controls {
+  display: grid; grid-template-columns: minmax(160px, 260px) auto auto auto; justify-content: start; align-items: end; gap: 10px 12px;
+  padding: 12px 18px 14px 52px; border-top: 1px solid var(--hair); background: var(--sheet-2);
+}
+.approval-controls > label:first-child { gap: 4px; font-size: var(--type-caption); }
+.approval-controls input:not([type="checkbox"]) { min-height: 36px; }
+.approval-controls .button { min-width: 104px; min-height: 36px; }
+.outreach-row-foot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; padding: 10px 18px 10px 52px; border-top: 1px solid var(--hair); background: var(--sheet-2); }
+.outreach-row-foot small { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.outreach-row-foot small svg { width: 14px; height: 14px; color: var(--ok); }
+.outreach-row-foot small strong { color: var(--text); }
+.outreach-row-foot .button { min-height: 32px; padding: 0 11px; font-size: var(--type-caption); }
+.outreach-row > .error-panel { margin: 12px 18px; }
+
+/* Statuses on this page: approved is a ring, sent is filled; in flight is ink, unsure is amber */
+.outreach-page .status { text-transform: capitalize; }
+.outreach-page .status-approved { background: var(--sheet); box-shadow: inset 0 0 0 1px var(--ok); }
+.outreach-page .status-queued, .outreach-page .status-sending { color: var(--action); background: var(--action-soft); }
+.outreach-page .status-sending::before { animation: pulse 1.6s ease-in-out infinite; }
+.outreach-page .status-uncertain { color: var(--warn); background: var(--warn-soft); }
+.outreach-page .status-exported { color: var(--ok); background: var(--sheet); box-shadow: inset 0 0 0 1px var(--rule); }
+
+.outreach-empty.empty-inline { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-5) var(--space-6); text-align: left; }
+.outreach-empty > div { display: grid; gap: 4px; }
+.outreach-empty > svg { flex: none; }
+
+/* ---------- Room-based layouts ---------- */
+@container page (max-width: 1000px) {
+  .compliance-layout { grid-template-columns: minmax(0, 1fr); }
+}
+@container page (max-width: 760px) {
+  .approval-controls { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .approval-controls > label:first-child, .approval-controls .button { grid-column: 1 / -1; }
+  .approval-controls .button { justify-self: start; }
+  .bulk-audit-toolbar > div:first-child { flex-basis: 100%; }
+  .bulk-audit-toolbar > label:not(.checkbox-label), .outreach-sender-select { flex: 1 1 100%; min-width: 0; }
+  .bulk-audit-toolbar > .icon-button { margin-left: auto; }
+}
+@container page (max-width: 620px) {
+  .outreach-page .compliance-notice { grid-template-columns: auto minmax(0, 1fr); padding: 14px; }
+  .compliance-notice .notice-badge { grid-column: 2; justify-items: start; }
+  .outreach-mode-switch { display: grid; width: 100%; }
+  .outreach-mode-switch button { min-width: 0; padding: 8px 10px; }
+  .compliance-form .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .compliance-form .span-2 { grid-column: auto; }
+  .compliance-form > header, .brief-group, .compliance-form > footer { padding-left: 16px; padding-right: 16px; }
+  .compliance-form > footer { flex-direction: column; align-items: stretch; }
+  .bulk-preflight { margin: 0 16px 18px; }
+  .compliance-form > .error-panel { margin: 0 16px var(--space-4); }
+  .preflight-row { grid-template-columns: 16px minmax(0, 1fr); }
+  .preflight-row > em { grid-column: 2; justify-self: start; text-align: left; }
+  .preflight-row.blocked > em { text-align: left; }
+  .outreach-head { padding: 14px 14px 0; gap: 10px; grid-template-columns: 22px minmax(0, 1fr); }
+  .outreach-head > .status { grid-column: 2; justify-self: start; margin-top: 0; }
+  .outreach-message, .approval-controls, .outreach-row-foot { padding-left: 14px; padding-right: 14px; }
+  .delivery-error { margin-left: 14px; margin-right: 14px; }
+  .approval-controls { grid-template-columns: minmax(0, 1fr); }
+  .approval-controls .checkbox-label { white-space: normal; padding-top: 8px; padding-bottom: 8px; }
+  .bulk-audit-toolbar { top: 64px; padding: 10px; }
+  .bulk-audit-toolbar > div:first-child small { display: none; }
+  .outreach-empty.empty-inline { padding: var(--space-4); }
+}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import {
@@ -64,16 +64,26 @@ import {
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from './api'
 import type { Candidate, EmailAccount, EmailAccountInput, EmailAccountsResponse, Lead, LocalDataStatus, OutreachDraft, UpdateStatus, RepositoryLead, RunCreate, RunDetail, RunSummary, StorageSettingsUpdate, WorkspaceSettingsUpdate } from './types'
-import { applyTheme, isThemeId, type ThemeId } from './theme'
-import './App.css'
-import './Brushstroke.css'
-import './Themes.css'
+import { applyAppearance, applyTheme, currentAppearance, DEFAULT_THEME, isThemeId, THEMES, type Appearance, type ThemeId } from './theme'
+import { Monitor as MonitorIcon, Moon as MoonIcon, Sun as SunIcon } from 'lucide-react'
+import { MapBoundary, ScoreRamp, Traverse, TrigMark, type Station } from './fieldbook'
+import { evidenceLevel, leadEvidence, mapPosition, methodLabel } from './evidence'
+import './styles/tokens.css'
+import './styles/base.css'
+import './styles/shell.css'
+import './styles/run.css'
+import './styles/new-run.css'
+import './styles/repository.css'
+import './styles/outreach.css'
+import './styles/settings.css'
+import './styles/local-data.css'
 import './Responsive.css'
 
 const statusLabels: Record<string, string> = {
   created: 'Created', ready: 'Ready', queued: 'Queued', processing: 'Enriching',
   completed: 'Completed', no_contact: 'No contact', failed: 'Failed', cancelled: 'Skipped', running: 'Enriching',
   searching: 'Searching', stopped: 'Stopped', approved: 'Approved', sent: 'Sent', blocked: 'Blocked',
+  draft: 'Draft', sending: 'Sending', uncertain: 'Uncertain', exported: 'Exported', sent_after_suppression: 'Sent',
 }
 
 const mojibakeReplacements: Array<[string, string]> = [
@@ -202,13 +212,19 @@ function Shell() {
   // On narrow windows the sidebar, and the update card in it, is folded away.
   const updates = useQuery({ queryKey: ['updates'], queryFn: api.updates, staleTime: 30_000 })
   const updateWaiting = updateNeedsAttention(updates.data)
+  const crumbRunId = location.pathname.match(/^\/runs\/([^/]+)/)?.[1] ?? ''
+  const crumbRun = useQuery({ queryKey: ['run', crumbRunId], queryFn: () => api.getRun(crumbRunId), enabled: !!crumbRunId, staleTime: 5_000 })
   const healthLabel = health.isPending ? 'Checking API' : health.isError ? 'API needs attention' : 'Local API ready'
   const healthClass = health.isPending ? 'health-checking' : health.isError ? 'health-down' : ''
-  const navItems = [
-    { to: '/runs', label: 'Runs', icon: LayoutList },
+  const runsList = useQuery({ queryKey: ['runs'], queryFn: api.listRuns, staleTime: 15_000 })
+  const drafts = useQuery({ queryKey: ['outreach-drafts'], queryFn: api.listDrafts, staleTime: 30_000 })
+  const awaitingReview = drafts.data?.filter((draft) => draft.status === 'draft').length ?? 0
+  const navItems: { to: string; label: string; icon: typeof LayoutList; count?: number; divider?: boolean }[] = [
+    { to: '/runs', label: 'Runs', icon: LayoutList, count: runsList.data?.length },
     { to: '/new', label: 'New run', icon: Plus },
     { to: '/repository', label: 'Repository', icon: Archive },
-    { to: '/outreach', label: 'Outreach review', icon: ShieldCheck },
+    { to: '/outreach', label: 'Outreach review', icon: ShieldCheck, count: awaitingReview || undefined },
+    { to: '/local-data', label: 'Local data', icon: Database, divider: true },
     { to: '/settings', label: 'Settings', icon: Settings },
   ]
   return (
@@ -221,16 +237,16 @@ function Shell() {
       <AnimatePresence>{menuOpen && <motion.button className="sidebar-backdrop" aria-label="Close navigation" onClick={() => setMenuOpen(false)} initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />}</AnimatePresence>
       <aside ref={sidebar} id="primary-navigation" className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`} inert={mobileNavigation && !menuOpen} aria-hidden={mobileNavigation && !menuOpen}>
         <NavLink className="brand desktop-brand" to="/runs"><BrandMark logo={logo} name={brandName} /><span><strong>{brandName}</strong><small>{brandSubtitle}</small></span></NavLink>
-        <nav onClick={() => setMenuOpen(false)}>
-          <span className="nav-kicker">Workspace</span>
-          {navItems.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to}>{({ isActive }) => <><span className="nav-icon"><Icon /></span><span>{label}</span>{isActive && <motion.span className="nav-active" layoutId="nav-active" transition={{ type: 'spring', stiffness: 420, damping: 34 }} />}</>}</NavLink>)}
+        <nav onClick={() => setMenuOpen(false)} aria-label="Primary">
+          {navItems.map(({ to, label, icon: Icon, count, divider }) => <NavLink key={to} to={to} className={divider ? 'nav-divided' : undefined}>{({ isActive }) => <><span className="nav-icon"><Icon /></span><span className="nav-label">{label}</span>{count !== undefined && <span className="nav-count">{count}</span>}{isActive && <motion.span className="nav-active" layoutId="nav-active" transition={{ type: 'spring', stiffness: 420, damping: 34 }} />}</>}</NavLink>)}
         </nav>
         <UpdateCard />
-        <div className="sidebar-meta"><span className="sidebar-meta-icon"><LockKeyhole /></span><span><strong>Private workspace</strong><small>Data stays on this machine</small></span></div>
+        <SendBudget />
+        <p className="rail-version">Leadroom {health.data?.version ? `v${health.data.version}` : ''}</p>
       </aside>
       <main className="content" inert={mobileNavigation && menuOpen}>
         <span className="sr-only" aria-live="polite">{pageLabel}</span>
-        <div className="workspace-bar"><div><span>Local workspace</span><ChevronRight /><strong>{pageLabel}</strong></div><div className={`health desktop-health ${healthClass}`} role="status"><span />{healthLabel}</div></div>
+        <div className="workspace-bar"><nav aria-label="Breadcrumb">{crumbRunId ? <><NavLink to="/runs">Runs</NavLink><ChevronRight aria-hidden="true" /><strong>{crumbRun.data ? runTitle(crumbRun.data.run) : 'Run'}</strong></> : <strong>{pageLabel}</strong>}</nav><div className={`health desktop-health ${healthClass}`} role="status"><span />{healthLabel}</div></div>
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={location.pathname}
@@ -327,7 +343,7 @@ function AboutSection() {
           : result === 'no_answer' ? 'The update service could not be reached. Try again later.'
             : status.data && !status.data.enabled ? 'Updates are checked in installed builds.'
               : 'Leadroom looks for updates every hour while it is open.'
-  return <section className="settings-section about-settings"><header><div><span className="settings-icon"><Info /></span><div><h2>About Leadroom</h2><p>Version {status.data?.current_version ?? '...'}</p></div></div></header>
+  return <section className="settings-section about-settings" id="settings-about"><header><div><span className="settings-icon"><Info /></span><div><h2>About Leadroom</h2><p>Version {status.data?.current_version ?? '...'}</p></div></div></header>
     <div className="settings-body about-body"><p role="status" aria-live="polite">{message}</p><button className="button ghost" onClick={() => check.mutate()} disabled={check.isPending}><RefreshCw className={check.isPending ? 'spin' : ''} />Check for updates</button></div>
   </section>
 }
@@ -356,6 +372,18 @@ function isoTimestamp(value: string) {
   return value.trim().replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00')
 }
 
+// The 25-a-day outreach limit as a budget that fills and cannot overflow.
+function SendBudget() {
+  const budget = useQuery({ queryKey: ['outreach-budget'], queryFn: api.outreachBudget, refetchInterval: 60_000, staleTime: 30_000 })
+  if (!budget.data) return null
+  const { sent, reserved, limit } = budget.data
+  const used = Math.min(limit, sent + reserved)
+  return <div className="send-budget" role="meter" aria-label="Outreach sent in the last 24 hours" aria-valuemin={0} aria-valuemax={limit} aria-valuenow={used}>
+    <span><span>Sent today</span><strong className="num">{sent}{reserved ? ` + ${reserved}` : ''} / {limit}</strong></span>
+    <i><em style={{ width: `${(sent / limit) * 100}%` }} /><em className="reserved" style={{ width: `${(Math.min(reserved, limit - sent) / limit) * 100}%` }} /></i>
+  </div>
+}
+
 function BrandMark({ logo, name }: { logo: string; name: string }) {
   return <span className={`brand-mark ${logo ? 'brand-mark-custom' : ''}`}>{logo ? <img src={logo} alt={`${name} logo`} /> : <LeadroomMark />}</span>
 }
@@ -364,8 +392,8 @@ function BrandMark({ logo, name }: { logo: string; name: string }) {
 function LeadroomMark() {
   return (
     <svg className="leadroom-mark" viewBox="0 0 3000 3000" fill="currentColor" aria-hidden="true" focusable="false">
-      <path d="M415.38,3000h152.9l1385.55-.04c270.54-28.62,361.3-80.29,538.28-327.18l166.88-238.83,341.01-505.81-1084.23,1.64c-262.22-15.72-437.21,159.07-486.87,218.55l-224.4,233.16-394.07,396.81c-63.74,58.09-112.94,104.57-185.29,149.6C552.76,2972.97,488.95,2999.28,415.38,3000Z" />
-      <path d="M0,2584.62c0-56.09,0-99.06,0-152.9l.04-1385.55c28.62-270.54,80.29-361.3,327.18-538.28l238.83-166.88L1071.86,0l-1.64,1084.23c15.72,262.22-159.07,437.21-218.55,486.87l-233.16,224.4-396.81,394.07c-58.09,63.74-104.57,112.94-149.6,185.29C27.03,2447.24.72,2511.05,0,2584.62Z" />
+      <path className="mark-foot" d="M415.38,3000h152.9l1385.55-.04c270.54-28.62,361.3-80.29,538.28-327.18l166.88-238.83,341.01-505.81-1084.23,1.64c-262.22-15.72-437.21,159.07-486.87,218.55l-224.4,233.16-394.07,396.81c-63.74,58.09-112.94,104.57-185.29,149.6C552.76,2972.97,488.95,2999.28,415.38,3000Z" />
+      <path className="mark-stem" d="M0,2584.62c0-56.09,0-99.06,0-152.9l.04-1385.55c28.62-270.54,80.29-361.3,327.18-538.28l238.83-166.88L1071.86,0l-1.64,1084.23c15.72,262.22-159.07,437.21-218.55,486.87l-233.16,224.4-396.81,394.07c-58.09,63.74-104.57,112.94-149.6,185.29C27.03,2447.24.72,2511.05,0,2584.62Z" />
     </svg>
   )
 }
@@ -387,17 +415,16 @@ function RunsPage() {
     mutationFn: api.deleteRun,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['runs'] }),
   })
-  const totals = (runs.data ?? []).reduce((acc, run) => ({ candidates: acc.candidates + (run.counts?.candidates ?? 0), completed: acc.completed + (run.counts?.completed ?? 0) }), { candidates: 0, completed: 0 })
+  const totals = (runs.data ?? []).reduce((acc, run) => ({ candidates: acc.candidates + Object.values(run.counts ?? {}).reduce((sum, value) => sum + value, 0), completed: acc.completed + (run.counts?.completed ?? 0) }), { candidates: 0, completed: 0 })
   return <section className="runs-page">
-    <PageHeader eyebrow="Lead intelligence" title="Runs" subtitle="Discover, review and enrich companies from one focused workspace." action={runs.data?.length ? <NavLink className="button primary" to="/new"><Plus />New run</NavLink> : undefined} />
+    <PageHeader title="Runs" subtitle="Discover, review and enrich companies from one focused workspace." action={runs.data?.length ? <NavLink className="button primary" to="/new"><Plus />New run</NavLink> : undefined} />
     {runs.isLoading && <LoadingRows />}
     {runs.error && <ErrorPanel error={runs.error} />}
     {runs.data?.length === 0 && <EmptyState />}
     {!!runs.data?.length && <>
-      <div className="operations-strip" aria-label="Workspace summary"><Metric label="Total runs" value={runs.data.length} /><Metric label="Candidates found" value={totals.candidates} /><Metric label="Completed leads" value={totals.completed} accent /><div className="operations-pulse"><span><Activity /></span><div><strong>Workspace active</strong><small>Results persist after every site</small></div></div></div>
-      <div className="section-heading"><div><span className="eyebrow">Activity</span><h2>Recent runs</h2></div><span>{runs.data.length} total</span></div>
+      <p className="runs-list-meta">{runs.data.length} run{runs.data.length === 1 ? '' : 's'} · {totals.candidates} candidates found · {totals.completed} leads with a public contact</p>
       {(control.error || remove.error) && <ErrorPanel error={(control.error || remove.error) as Error} />}
-      <div className="table-wrap runs-table"><table><thead><tr><th>Name</th><th>Status</th><th>Started</th><th>Updated</th><th><span className="sr-only">Run actions</span></th></tr></thead><tbody>
+      <div className="table-wrap runs-table"><table><thead><tr><th>Run</th><th>Progress</th><th>Status</th><th>Updated</th><th><span className="sr-only">Run actions</span></th></tr></thead><tbody>
         {runs.data.map((run, index) => <motion.tr key={run.id} initial={reduceMotion ? false : { opacity: 0, y: Math.min(10, 4 + index) }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .24, delay: reduceMotion ? 0 : Math.min(index, 5) * .035 }}><RunRowCells run={run} busy={control.isPending || remove.isPending} onControl={(action) => control.mutate({ runId: run.id, action })} onDelete={() => { if (window.confirm(`Delete ${run.run_name}? Its candidates and run results will be removed. Leads already saved in the repository will stay safe.`)) remove.mutate(run.id) }} /></motion.tr>)}
       </tbody></table></div>
     </>}
@@ -406,11 +433,12 @@ function RunsPage() {
 
 function RunRowCells({ run, busy, onControl, onDelete }: { run: RunSummary; busy: boolean; onControl: (action: 'stop' | 'continue') => void; onDelete: () => void }) {
   const active = run.status === 'searching' || run.status === 'running'
-  return <><td data-label="Name"><NavLink className="row-title" aria-label={run.run_name} to={`/runs/${run.id}`}><span className="run-avatar run-avatar-letter" aria-hidden="true">{runInitial(run.run_name)}</span><span><strong>{run.run_name}</strong><small className="muted id-text">{run.id.slice(0, 8)}</small></span></NavLink></td><td data-label="Status"><StatusBadge status={run.status} /></td><td data-label="Started">{formatDate(run.created_at)}</td><td data-label="Updated">{formatDate(run.updated_at)}</td><td className="runs-actions"><div className="run-row-actions"><button className={`icon-button ${active ? 'stop-action' : 'continue-action'}`} disabled={busy} onClick={() => onControl(active ? 'stop' : 'continue')} aria-label={`${active ? 'Stop' : 'Continue'} ${run.run_name}`} title={active ? 'Stop run' : 'Continue run'}>{active ? <CircleStop /> : <Play />}</button><NavLink className="icon-button" aria-label={`Open ${run.run_name}`} title="Open run" to={`/runs/${run.id}`}><ArrowUpRight /></NavLink><button className="icon-button destructive" disabled={busy} onClick={onDelete} aria-label={`Delete ${run.run_name}`} title="Delete run"><Trash2 /></button></div></td></>
-}
-
-function runInitial(runName: string) {
-  return runName.match(/[A-Za-z]/)?.[0].toUpperCase() ?? runName.match(/[0-9]/)?.[0] ?? '?'
+  const counts = run.counts ?? {}
+  const total = Object.values(counts).reduce((sum, value) => sum + value, 0)
+  const selected = total - (counts.cancelled ?? 0)
+  const read = (counts.completed ?? 0) + (counts.no_contact ?? 0) + (counts.failed ?? 0)
+  const title = runTitle(run)
+  return <><td data-label="Run"><NavLink className="row-title" aria-label={title} to={`/runs/${run.id}`}><span><strong>{title}</strong><small className="muted">{[run.location, run.created_at && `started ${formatDate(run.created_at)}`].filter(Boolean).join(' · ') || run.run_name}</small></span></NavLink></td><td data-label="Progress"><Traverse compact label={`${title} progress`} stations={runStations(run, total, selected, read, counts.completed ?? 0, 0).slice(0, 4)} /></td><td data-label="Status"><StatusBadge status={run.status} /></td><td data-label="Updated" className="num">{formatDate(run.updated_at)}</td><td className="runs-actions"><div className="run-row-actions"><button className={`icon-button ${active ? 'stop-action' : 'continue-action'}`} disabled={busy} onClick={() => onControl(active ? 'stop' : 'continue')} aria-label={`${active ? 'Stop' : 'Continue'} ${run.run_name}`} title={active ? 'Stop run' : 'Continue run'}>{active ? <CircleStop /> : <Play />}</button><NavLink className="icon-button" aria-label={`Open ${run.run_name}`} title="Open run" to={`/runs/${run.id}`}><ArrowUpRight /></NavLink><button className="icon-button destructive" disabled={busy} onClick={onDelete} aria-label={`Delete ${run.run_name}`} title="Delete run"><Trash2 /></button></div></td></>
 }
 
 function buildRunName(niche: string, now: Date) {
@@ -463,10 +491,10 @@ function NewRunPage() {
   const crawlProfile = CRAWL_PROFILES[form.crawl_mode]
   const modeCopy = form.discovery_mode === 'new_only' ? 'Only domains not seen in earlier matching runs.' : form.discovery_mode === 'reuse' ? 'Saved lead data is reused whenever it is available.' : 'Every returned website is searched and enriched again.'
   return <section className="new-run-page">
-    <PageHeader eyebrow="Run builder" title="Find your next market" subtitle="Define a precise search, then choose how previous discoveries should shape the results." />
+    <PageHeader title="Find your next market" subtitle="Define a precise search, then choose how previous discoveries should shape the results." />
     <div className="new-run-layout">
     <form className="form-surface" onSubmit={(event) => { event.preventDefault(); create.mutate({ ...form, model: effectiveModel }) }}>
-      <div className="step-label"><span>1</span>Market</div>
+      <div className="step-label">Market</div>
       <div className="form-grid">
         <label className="span-2">Business niche<input required value={form.niche} onChange={(e) => setForm((old) => ({ ...old, niche: e.target.value, run_name: buildRunName(e.target.value, runTimestamp) }))} placeholder="e.g. independent dental clinics" /></label>
         <label>Location<input required value={form.location} onChange={(e) => set('location', e.target.value)} /></label>
@@ -519,9 +547,9 @@ function NewRunPage() {
       <div className="form-actions"><div className="form-action-note">{form.search_provider === 'osm_local' ? <Database /> : <Search />}<span>{form.search_provider === 'osm_local' ? <>Find the first <strong>{form.max_sites}</strong> local candidates; continue without a total limit</> : <>Find up to <strong>{form.max_sites}</strong> candidates for review</>}</span></div><button type="button" className="button ghost" onClick={cancelCreate}>Cancel</button><button className="button primary" disabled={create.isPending}><Search />{create.isPending ? 'Searching…' : 'Find candidates'}</button></div>
     </form>
     <aside className="run-brief" aria-label="Run brief">
-      <div className="brief-head"><span><BarChart3 /></span><div><small>Live brief</small><strong>Search blueprint</strong></div><i>Draft</i></div>
-      <div className="brief-market"><span>Target market</span><strong>{form.niche.trim() || 'Add a business niche'}</strong><small><MapPin />{form.location.trim() || 'No location selected'}</small></div>
-      <div className="brief-mode"><span>Discovery strategy</span><AnimatePresence mode="wait" initial={false}><motion.div key={form.discovery_mode} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} transition={{ duration: .16 }}><strong>{form.discovery_mode === 'new_only' ? 'Unseen sites' : form.discovery_mode === 'reuse' ? 'Reuse saved' : 'Full refresh'}</strong><p>{modeCopy}</p></motion.div></AnimatePresence></div>
+      <div className="brief-head"><span><BarChart3 /></span><div><strong>Search blueprint</strong></div></div>
+      <div className="brief-market"><strong>{form.niche.trim() || 'Add a business niche'}</strong><small><MapPin />{form.location.trim() || 'No location selected'}</small></div>
+      <div className="brief-mode"><AnimatePresence mode="wait" initial={false}><motion.div key={form.discovery_mode} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} transition={{ duration: .16 }}><strong>{form.discovery_mode === 'new_only' ? 'Unseen sites' : form.discovery_mode === 'reuse' ? 'Reuse saved' : 'Full refresh'}</strong><p>{modeCopy}</p></motion.div></AnimatePresence></div>
       <div className="brief-stats"><div><strong>{form.max_sites}</strong><span>sites</span></div><div><strong>{crawlProfile.pages}</strong><span>pages/site</span></div><div><strong>{crawlProfile.depth}</strong><span>link depth</span></div></div>
       <div className="brief-foot"><LockKeyhole /><span><strong>Local by design</strong><small>Research data stays in this workspace.</small></span></div>
     </aside>
@@ -562,11 +590,32 @@ function MarketHistoryStrip({ loading, history, hasScope }: { loading: boolean; 
   return <div className="market-history" aria-live="polite"><Database /><span><strong>{history.seen_domains} sites already seen</strong>{history.completed_leads} enriched across {history.previous_runs} previous {history.previous_runs === 1 ? 'run' : 'runs'}.</span></div>
 }
 
+const CRAWL_LABELS: Record<string, string> = { quick: 'Quick crawl', deep: 'Deep crawl', exhaustive: 'Exhaustive crawl' }
+const SOURCE_LABELS: Record<string, string> = { hybrid: 'Local + web', osm_local: 'Local map index', auto: 'Web', brave: 'Web (Brave)', ddgs: 'Web' }
+
+function runTitle(run: RunSummary) {
+  const niche = run.niche?.trim()
+  return niche ? niche.charAt(0).toUpperCase() + niche.slice(1) : run.run_name
+}
+
+function runStations(run: RunSummary, candidateCount: number, selected: number, done: number, leadCount: number, draftCount: number): Station[] {
+  const searching = run.status === 'searching'
+  const reading = run.status === 'running'
+  const awaitingSelection = !searching && !reading && candidateCount > 0 && done === 0
+  return [
+    { key: 'discovered', label: 'Discovered', value: candidateCount, state: searching ? 'current' : candidateCount ? 'done' : 'pending' },
+    { key: 'selected', label: 'Selected', value: selected, state: !candidateCount || searching ? 'pending' : awaitingSelection ? 'current' : 'done', note: awaitingSelection ? 'Review candidates' : undefined },
+    { key: 'read', label: 'Read', value: done, of: selected, state: reading ? 'current' : done ? 'done' : 'pending' },
+    { key: 'leads', label: 'Leads', value: leadCount, state: !leadCount ? 'pending' : draftCount || reading ? 'done' : 'current' },
+    { key: 'outreach', label: 'Drafts', value: draftCount, state: draftCount ? 'done' : 'pending' },
+  ]
+}
+
 function RunPage() {
   const { runId = '' } = useParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [tab, setTab] = useState<'candidates' | 'progress' | 'leads'>('candidates')
+  const [tab, setTab] = useState<'candidates' | 'progress' | 'leads' | null>(null)
   const [candidateSource, setCandidateSource] = useState<'all' | 'local' | 'web'>('all')
   const detail = useQuery({
     queryKey: ['run', runId],
@@ -574,6 +623,7 @@ function RunPage() {
     refetchInterval: (query) => ['searching', 'running'].includes(query.state.data?.run.status ?? '') ? 1200 : false,
     refetchIntervalInBackground: false,
   })
+  const drafts = useQuery({ queryKey: ['outreach-drafts'], queryFn: api.listDrafts, staleTime: 30_000 })
   const action = useMutation({ mutationFn: (kind: 'start' | 'cancel' | 'retry' | 'continue') => api[`${kind}Run`](runId), onSuccess: (data: unknown) => { queryClient.invalidateQueries({ queryKey: ['run', runId] }); queryClient.invalidateQueries({ queryKey: ['runs'] }); if ((data as { kind?: string })?.kind === 'enrichment') setTab('progress') } })
   const discover = useMutation({ mutationFn: (source: 'local' | 'web' | 'both') => api.discoverMore(runId, source), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['run', runId] }); setTab('candidates') } })
   const remove = useMutation({ mutationFn: () => api.deleteRun(runId), onSuccess: () => { queryClient.removeQueries({ queryKey: ['run', runId] }); queryClient.invalidateQueries({ queryKey: ['runs'] }); navigate('/runs') } })
@@ -581,33 +631,58 @@ function RunPage() {
   if (detail.error) return <ErrorPanel error={detail.error} />
   if (!detail.data) return null
   const { run, candidates, leads } = detail.data
-  const selected = candidates.filter((item) => item.status !== 'cancelled').length
+  // The run's own status counts cover every candidate, including any not loaded here.
+  const total = Math.max(candidates.length, Object.values(run.counts ?? {}).reduce((sum, value) => sum + value, 0))
+  const selected = total - (run.counts.cancelled ?? 0)
   const done = (run.counts.completed ?? 0) + (run.counts.no_contact ?? 0) + (run.counts.failed ?? 0)
+  const failed = run.counts.failed ?? 0
+  const noContact = run.counts.no_contact ?? 0
   const active = run.status === 'searching' || run.status === 'running'
+  const draftCount = drafts.data?.filter((draft) => draft.run_id === runId).length ?? 0
+  const currentTab = tab ?? (leads.length ? 'leads' : run.status === 'running' ? 'progress' : 'candidates')
+  const title = runTitle(run)
+  const subtitle = [run.location, run.crawl_mode && CRAWL_LABELS[run.crawl_mode], run.search_provider && SOURCE_LABELS[run.search_provider], run.created_at && `started ${formatDate(run.created_at)}`].filter(Boolean).join(' · ')
+  const discoveryNote = run.discovery?.mode ? `${run.discovery.new_candidates ?? run.discovery.count ?? total} found${run.discovery.mode === 'new_only' ? ', new sites only' : ''}` : ''
+  const tabs = [
+    { id: 'leads' as const, label: 'Leads', icon: Check, count: leads.length as number | undefined },
+    { id: 'candidates' as const, label: 'Candidates', icon: SlidersHorizontal, count: candidates.length as number | undefined },
+    { id: 'progress' as const, label: 'Reading', icon: Activity, count: undefined },
+  ]
+  const progressNote = run.status === 'searching'
+    ? 'Searching for candidates…'
+    : run.status === 'running'
+      ? `Reading sites · ${done} of ${selected} done`
+      : selected && !done
+        ? 'Choose which candidates to read, then continue the run.'
+        : `${noContact} site${noContact === 1 ? '' : 's'} had no public contact`
   return <section className="run-page">
-    <PageHeader eyebrow="Run workspace" title={run.run_name} subtitle={`Run ${run.id.slice(0, 8)} · ${candidates.length} candidate${candidates.length === 1 ? '' : 's'}`} action={<div className="header-actions">
-      <button className="icon-button destructive" disabled={remove.isPending} onClick={() => { if (window.confirm(`Delete ${run.run_name}? Run candidates and results will be removed. Repository leads stay safe.`)) remove.mutate() }} aria-label="Delete run" title="Delete run"><Trash2 /></button>
-      {active ? <button className="button danger" disabled={action.isPending} onClick={() => action.mutate('cancel')}><CircleStop />Stop</button> : <button className="button primary" disabled={action.isPending} onClick={() => action.mutate('continue')}><Play />Continue</button>}
-    </div>} />
+    <header className="page-header run-header">
+      <div>
+        <div className="run-title"><h1>{title}</h1><StatusBadge status={run.status} /></div>
+        <p>{subtitle || `Run ${run.id.slice(0, 8)}`}</p>
+      </div>
+      <div className="header-actions">
+        <button className="icon-button destructive" disabled={remove.isPending} onClick={() => { if (window.confirm(`Delete ${title}? Its candidates and results will be removed. Leads already in the repository stay.`)) remove.mutate() }} aria-label="Delete run" title="Delete run"><Trash2 /></button>
+        {active ? <button className="button" disabled={action.isPending} onClick={() => action.mutate('cancel')}><CircleStop />Stop</button> : <button className="button" disabled={action.isPending} onClick={() => action.mutate('continue')}><Play />Continue</button>}
+        {leads.length > 0 && <NavLink className="button primary" to={`/outreach?run=${encodeURIComponent(runId)}`}><Mail />Draft outreach</NavLink>}
+      </div>
+    </header>
     {(action.error || discover.error || remove.error) && <ErrorPanel error={(action.error || discover.error || remove.error) as Error} />}
+    <div className="traverse-card">
+      <Traverse label="Run progress" stations={runStations(run, total, selected, done, leads.length, draftCount)} />
+      <div className="traverse-notes">
+        <span>{progressNote}{discoveryNote && <> · {discoveryNote}</>}</span>
+        {failed > 0 && <span className="traverse-warn"><AlertTriangle />{failed} site{failed === 1 ? '' : 's'} could not be read<button type="button" onClick={() => setTab('progress')}>View sites</button></span>}
+      </div>
+    </div>
     {run.status === 'searching' && <SearchProgress mode={candidates.length ? 'continuation' : 'initial'} />}
-    {!!run.discovery?.mode && <DiscoverySummaryBand discovery={run.discovery} />}
-    <div className="run-overview">
-      <Metric label="Candidates" value={candidates.length} />
-      <Metric label="Selected" value={selected} />
-      <Metric label="Completed" value={run.counts.completed ?? 0} />
-      <Metric label="Clean leads" value={leads.length} accent />
-      <div className="run-state"><StatusBadge status={run.status} /><span>{run.status === 'running' ? `${done} of ${selected} processed` : 'Latest persisted state'}</span></div>
-    </div>
     <div className="tabs" role="tablist" aria-label="Run workspace">
-      <button id="tab-candidates" role="tab" tabIndex={tab === 'candidates' ? 0 : -1} aria-selected={tab === 'candidates'} aria-controls="panel-candidates" className={tab === 'candidates' ? 'active' : ''} onKeyDown={handleTabListKeyDown} onClick={() => setTab('candidates')}><SlidersHorizontal />Candidates <span>{candidates.length}</span></button>
-      <button id="tab-progress" role="tab" tabIndex={tab === 'progress' ? 0 : -1} aria-selected={tab === 'progress'} aria-controls="panel-progress" className={tab === 'progress' ? 'active' : ''} onKeyDown={handleTabListKeyDown} onClick={() => setTab('progress')}><Activity />Progress</button>
-      <button id="tab-leads" role="tab" tabIndex={tab === 'leads' ? 0 : -1} aria-selected={tab === 'leads'} aria-controls="panel-leads" className={tab === 'leads' ? 'active' : ''} onKeyDown={handleTabListKeyDown} onClick={() => setTab('leads')}><Check />Leads <span>{leads.length}</span></button>
+      {tabs.map(({ id, label, icon: Icon, count }) => <button key={id} id={`tab-${id}`} role="tab" tabIndex={currentTab === id ? 0 : -1} aria-selected={currentTab === id} aria-controls={`panel-${id}`} className={currentTab === id ? 'active' : ''} onKeyDown={handleTabListKeyDown} onClick={() => setTab(id)}><Icon />{label}{count !== undefined && <span>{count}</span>}</button>)}
     </div>
-    <div id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`}>
-      {tab === 'candidates' && <CandidatesPanel runId={runId} candidates={candidates} disabled={active} source={candidateSource} onSourceChange={setCandidateSource} discovering={discover.isPending || run.status === 'searching'} onDiscover={(mode) => discover.mutate(mode)} />}
-      {tab === 'progress' && <ProgressPanel candidates={candidates} selected={selected} done={done} />}
-      {tab === 'leads' && <LeadsPanel runId={runId} leads={leads} />}
+    <div id={`panel-${currentTab}`} role="tabpanel" aria-labelledby={`tab-${currentTab}`}>
+      {currentTab === 'candidates' && <CandidatesPanel runId={runId} candidates={candidates} disabled={active} source={candidateSource} onSourceChange={setCandidateSource} discovering={discover.isPending || run.status === 'searching'} onDiscover={(mode) => discover.mutate(mode)} />}
+      {currentTab === 'progress' && <ProgressPanel candidates={candidates} selected={selected} done={done} discovery={run.discovery} />}
+      {currentTab === 'leads' && <LeadsPanel runId={runId} leads={leads} />}
     </div>
   </section>
 }
@@ -667,9 +742,10 @@ function CandidatesPanel({ runId, candidates, disabled, source, onSourceChange, 
   </div>
 }
 
-function ProgressPanel({ candidates, selected, done }: { candidates: Candidate[]; selected: number; done: number }) {
+function ProgressPanel({ candidates, selected, done, discovery }: { candidates: Candidate[]; selected: number; done: number; discovery?: RunSummary['discovery'] }) {
   const percent = selected ? Math.min(100, Math.round(done / selected * 100)) : 0
   return <div className="panel"><div className="progress-head"><div><h2>Enrichment progress</h2><p>Each result is persisted as it completes.</p></div><strong>{percent}%</strong></div>
+    {!!discovery?.mode && <DiscoverySummaryBand discovery={discovery} />}
     <div className="progress-track" role="progressbar" aria-label="Enrichment progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><span style={{ width: `${percent}%` }} /></div>
     <div className="progress-list">{candidates.filter((c) => c.status !== 'cancelled').map((item) => {
       const checked = item.crawl_pages_checked ?? 0
@@ -680,36 +756,125 @@ function ProgressPanel({ candidates, selected, done }: { candidates: Candidate[]
   </div>
 }
 
+const LeadsMap = lazy(() => import('./LeadsMap'))
+
 function LeadsPanel({ runId, leads }: { runId: string; leads: Lead[] }) {
   const queryClient = useQueryClient()
   const [filter, setFilter] = useState('')
+  const [view, setView] = useState<'table' | 'map'>('table')
+  const [quality, setQuality] = useState<'all' | 'email' | 'review'>('all')
   const [sorting, setSorting] = useState<SortingState>([{ id: 'lead_score', desc: true }])
-  const [selected, setSelected] = useState<Lead | null>(null)
+  const [selectedDomain, setSelectedDomain] = useState<string | null>(null)
+  const [editing, setEditing] = useState<Lead | null>(null)
   const saveToRepository = useMutation({
     mutationFn: () => api.importToRepository(runId, leads.map((lead) => lead.domain)),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['repository'] }),
   })
+  const needsReview = (lead: Lead) => leadEvidence(lead, 'email').level < 2 && leadEvidence(lead, 'phone').level < 2
+  const withEmail = leads.filter((lead) => leadEvidence(lead, 'email').value).length
+  const reviewCount = leads.filter(needsReview).length
+  const visibleLeads = quality === 'email' ? leads.filter((lead) => leadEvidence(lead, 'email').value) : quality === 'review' ? leads.filter(needsReview) : leads
   const columns = useMemo<ColumnDef<Lead>[]>(() => [
-    { accessorKey: 'business_name', header: 'Business', cell: ({ row }) => <button className="business-link" onClick={() => setSelected(row.original)}>{row.original.business_name || row.original.domain}<small>{row.original.domain}</small></button> },
-    { accessorKey: 'city_or_area', header: 'Area' },
-    { accessorKey: 'generic_email', header: 'Email', cell: ({ row }) => <ContactStack values={row.original.emails?.length ? row.original.emails : [row.original.generic_email]} kind="email" /> },
-    { accessorKey: 'phone', header: 'Phone', cell: ({ row }) => <ContactStack values={row.original.phones?.length ? row.original.phones : [row.original.phone]} kind="phone" /> },
-    { accessorKey: 'lead_score', header: 'Score', cell: ({ getValue }) => <span className="score">{String(getValue())}/10</span> },
+    { accessorKey: 'business_name', header: 'Business', cell: ({ row }) => <span className="business-link">{row.original.business_name || row.original.domain}<small>{row.original.domain}</small></span> },
+    { accessorKey: 'city_or_area', header: 'Area', cell: ({ getValue }) => <span className="cell-area">{String(getValue() || '') || <span className="muted">Not found</span>}</span> },
+    { id: 'email', accessorFn: (lead) => leadEvidence(lead, 'email').value ?? '', header: 'Email', cell: ({ row }) => <EvidenceCell lead={row.original} field="email" /> },
+    { id: 'phone', accessorFn: (lead) => leadEvidence(lead, 'phone').value ?? '', header: 'Phone', cell: ({ row }) => <EvidenceCell lead={row.original} field="phone" /> },
+    { accessorKey: 'lead_score', header: 'Score', cell: ({ row }) => <ScoreRamp score={row.original.lead_score} reason={row.original.lead_reason} /> },
   ], [])
   // TanStack Table intentionally exposes non-memoizable functions.
   // eslint-disable-next-line react-hooks/incompatible-library
-  const table = useReactTable({ data: leads, columns, state: { sorting, globalFilter: filter }, onSortingChange: setSorting, onGlobalFilterChange: setFilter, getCoreRowModel: getCoreRowModel(), getSortedRowModel: getSortedRowModel(), getFilteredRowModel: getFilteredRowModel() })
-  if (!leads.length) return <div className="panel empty-inline"><Mail /><h2>No clean leads yet</h2><p>Start enrichment, then verified results will appear here.</p></div>
-  return <div className="panel leads-panel">{saveToRepository.data && <div className="repository-result" role="status"><Check /><span><strong>{saveToRepository.data.added} added, {saveToRepository.data.updated} updated</strong>{saveToRepository.data.skipped ? `${saveToRepository.data.skipped} without a verified contact skipped. ` : ''}{saveToRepository.data.total} leads are now saved in the repository.</span><NavLink to="/repository">Open repository<ArrowUpRight /></NavLink></div>}{saveToRepository.error && <ErrorPanel error={saveToRepository.error} />}<div className="table-tools"><label className="search-input"><Search /><input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter leads" aria-label="Filter leads" /></label><div><button className="button primary" disabled={saveToRepository.isPending} onClick={() => saveToRepository.mutate()}><Upload />{saveToRepository.isPending ? 'Saving...' : `Save all ${leads.length}`}</button><a className="button ghost" href={api.exportUrl(runId, 'json')}><FileJson />JSON</a><a className="button ghost" href={api.exportUrl(runId, 'csv')}><Download />CSV</a></div></div>
-    <div className="table-wrap"><table><thead>{table.getHeaderGroups().map((group) => <tr key={group.id}>{group.headers.map((header) => { const sorted = header.column.getIsSorted(); return <th key={header.id} aria-sort={sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : 'none'}><button className="sort-button" onClick={header.column.getToggleSortingHandler()} aria-label={`Sort by ${String(header.column.columnDef.header)}${sorted === 'asc' ? ' descending' : ' ascending'}`}>{flexRender(header.column.columnDef.header, header.getContext())}<ArrowDownUp /></button></th> })}</tr>)}</thead><tbody>{table.getRowModel().rows.map((row) => <tr key={row.id}>{row.getVisibleCells().map((cell) => <td data-label={typeof cell.column.columnDef.header === 'string' ? cell.column.columnDef.header : cell.column.id} key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}</tr>)}</tbody></table></div>
-    {selected && <LeadDrawer runId={runId} lead={selected} onClose={() => setSelected(null)} />}
+  const table = useReactTable({ data: visibleLeads, columns, state: { sorting, globalFilter: filter }, onSortingChange: setSorting, onGlobalFilterChange: setFilter, getCoreRowModel: getCoreRowModel(), getSortedRowModel: getSortedRowModel(), getFilteredRowModel: getFilteredRowModel() })
+  const rows = table.getRowModel().rows
+  const selectedLead = leads.find((lead) => lead.domain === selectedDomain) ?? null
+  const plotted = useMemo(() => leads.flatMap((lead) => { const position = mapPosition(lead); return position ? [{ lead, ...position }] : [] }), [leads])
+  if (!leads.length) return <div className="empty-inline"><Mail /><h2>No leads yet</h2><p>Choose candidates and continue the run. Each lead appears here as its site is read.</p></div>
+  return <div className="leads-panel">
+    {saveToRepository.data && <div className="notice ok" role="status"><Check /><span><strong>{saveToRepository.data.added} added, {saveToRepository.data.updated} updated.</strong> {saveToRepository.data.skipped ? `${saveToRepository.data.skipped} without a verified contact skipped. ` : ''}{saveToRepository.data.total} leads are now in the repository. <NavLink to="/repository">Open repository</NavLink></span></div>}
+    {saveToRepository.error && <ErrorPanel error={saveToRepository.error} />}
+    <div className="table-tools leads-tools">
+      <div className="segmented" role="group" aria-label="Lead filter">
+        <button type="button" aria-pressed={quality === 'all'} onClick={() => setQuality('all')}>All <span>{leads.length}</span></button>
+        <button type="button" aria-pressed={quality === 'email'} onClick={() => setQuality('email')}>With email <span>{withEmail}</span></button>
+        <button type="button" aria-pressed={quality === 'review'} onClick={() => setQuality('review')}>Needs review <span>{reviewCount}</span></button>
+      </div>
+      <label className="search-input"><Search /><input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter by name, area or email" aria-label="Filter leads" /></label>
+      <div className="segmented view-switch" role="group" aria-label="View">
+        <button type="button" aria-pressed={view === 'table'} onClick={() => setView('table')}><LayoutList />Table</button>
+        <button type="button" aria-pressed={view === 'map'} onClick={() => setView('map')}><MapPin />Map <span>{plotted.length}</span></button>
+      </div>
+    </div>
+    <div className={`leads-workspace ${selectedLead ? 'has-evidence' : ''}`}>
+      <div className="leads-main">
+        {view === 'map' && <MapBoundary><Suspense fallback={<div className="leads-map leads-map-loading"><RefreshCw className="spin" />Loading map…</div>}><LeadsMap points={plotted} selected={selectedDomain} onSelect={setSelectedDomain} /></Suspense></MapBoundary>}
+        <div className={`table-wrap leads-table ${view === 'map' ? 'is-compact' : ''}`}>
+          <table><thead>{table.getHeaderGroups().map((group) => <tr key={group.id}>{group.headers.map((header) => { const sorted = header.column.getIsSorted(); return <th key={header.id} aria-sort={sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : 'none'}><button className="sort-button" onClick={header.column.getToggleSortingHandler()} aria-label={`Sort by ${String(header.column.columnDef.header)}${sorted === 'asc' ? ' descending' : ' ascending'}`}>{flexRender(header.column.columnDef.header, header.getContext())}<ArrowDownUp /></button></th> })}</tr>)}</thead>
+            <tbody>{rows.map((row) => {
+              const active = row.original.domain === selectedDomain
+              const positioned = !!mapPosition(row.original)
+              return <tr key={row.id} className={active ? 'is-selected' : ''} aria-selected={active} tabIndex={0} onClick={() => setSelectedDomain(row.original.domain)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedDomain(row.original.domain) } }}>
+                {row.getVisibleCells().map((cell, index) => <td data-label={typeof cell.column.columnDef.header === 'string' ? cell.column.columnDef.header : cell.column.id} key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}{index === 0 && view === 'map' && !positioned && <small className="no-position">No map position</small>}</td>)}
+              </tr>
+            })}</tbody>
+          </table>
+          {!rows.length && <div className="table-empty"><Search /><span>No leads match this filter.</span><button type="button" className="button ghost" onClick={() => { setFilter(''); setQuality('all') }}>Clear filter</button></div>}
+          <div className="table-foot"><span>Showing {rows.length} of {leads.length} leads{view === 'map' ? ` · ${plotted.length} on the map` : ''}</span><span className="trig-legend" aria-label="Evidence key"><TrigMark level={3} /> Link or record <TrigMark level={2} /> Page text <TrigMark level={1} /> AI only</span></div>
+        </div>
+        <div className="leads-actions">
+          <button className="button primary" disabled={saveToRepository.isPending} onClick={() => saveToRepository.mutate()}><Upload />{saveToRepository.isPending ? 'Saving…' : `Save all ${leads.length} to repository`}</button>
+          <a className="button ghost" href={api.exportUrl(runId, 'csv')}><Download />CSV</a>
+          <a className="button ghost" href={api.exportUrl(runId, 'json')}><FileJson />JSON</a>
+        </div>
+      </div>
+      {selectedLead && <EvidencePanel runId={runId} lead={selectedLead} onClose={() => setSelectedDomain(null)} onEdit={() => setEditing(selectedLead)} />}
+    </div>
+    {editing && <LeadDrawer runId={runId} lead={editing} onClose={() => setEditing(null)} />}
   </div>
 }
 
-function ContactStack({ values, kind }: { values: string[]; kind: 'email' | 'phone' }) {
-  const contacts = values.filter(Boolean).slice(0, 3)
-  if (!contacts.length) return <span className="muted">Not found</span>
-  return <span className="contact-stack">{contacts.map((value) => <a key={value} href={`${kind === 'email' ? 'mailto:' : 'tel:'}${value}`}>{value}</a>)}</span>
+function EvidenceCell({ lead, field }: { lead: Lead; field: 'email' | 'phone' }) {
+  const { value, level } = leadEvidence(lead, field)
+  const others = (field === 'email' ? lead.emails : lead.phones)?.filter((item) => item && item !== value).length ?? 0
+  if (!value) return <span className="muted evidence-missing">{field === 'email' ? 'No public email' : 'No phone'}</span>
+  return <span className={`evidence-cell ${field === 'phone' ? 'num' : ''}`}><TrigMark level={level} /><a href={`${field === 'email' ? 'mailto:' : 'tel:'}${value}`} onClick={(event) => event.stopPropagation()}>{value}</a>{others > 0 && <small>+{others}</small>}</span>
+}
+
+function EvidencePanel({ runId, lead, onClose, onEdit }: { runId: string; lead: Lead; onClose: () => void; onEdit: () => void }) {
+  const fields: { key: string; label: string; value?: string; list?: string[]; icon: typeof Mail }[] = [
+    { key: 'generic_email', label: 'Email', value: lead.emails?.[0] || lead.generic_email, list: lead.emails, icon: Mail },
+    { key: 'phone', label: 'Phone', value: lead.phones?.[0] || lead.phone, list: lead.phones, icon: Phone },
+    { key: 'city_or_area', label: 'Area', value: lead.address || lead.city_or_area, icon: MapPin },
+    { key: 'contact_page', label: 'Contact page', value: lead.contact_page, icon: Link2 },
+  ]
+  return <aside className="evidence-panel" role="complementary" aria-label={`Evidence for ${lead.business_name || lead.domain}`}>
+    <div className="evidence-head">
+      <div><h2>{lead.business_name || lead.domain}</h2>{lead.website ? <a href={lead.website} target="_blank" rel="noreferrer">{lead.domain}<ExternalLink /></a> : <span>{lead.domain}</span>}</div>
+      <button className="icon-button" onClick={onClose} aria-label="Close evidence"><X /></button>
+    </div>
+    <div className="evidence-score"><ScoreRamp score={lead.lead_score} /><p>{lead.lead_reason || 'Score from the evidence found on the business’s own pages.'}</p></div>
+    <dl className="evidence-fields">{fields.map(({ key, label, value, list, icon: Icon }) => {
+      const item = lead.field_evidence?.[key] ?? lead.field_evidence?.[key === 'generic_email' ? 'emails' : key === 'phone' ? 'phones' : key]
+      const contact = key === 'generic_email' || key === 'phone'
+      return <div key={key} className="evidence-field">
+        <dt><Icon />{label}</dt>
+        <dd>
+          {value ? <span className={`evidence-value ${key === 'phone' ? 'num' : ''}`}>{contact && <TrigMark level={evidenceLevel(value, item)} />}{value}</span> : <span className="muted">Not found</span>}
+          {value && contact && item?.method && <small className="evidence-source">{methodLabel(item.method)}{item?.source_url && <> · <a href={item.source_url} target="_blank" rel="noreferrer">{shortPath(item.source_url)}</a></>}</small>}
+          {list && list.filter((entry) => entry && entry !== value).map((entry) => <span key={entry} className={`evidence-extra ${key === 'phone' ? 'num' : ''}`}>{entry}</span>)}
+        </dd>
+      </div>
+    })}</dl>
+    {!!lead.services?.length && <div className="evidence-block"><h3>Services</h3><div className="tags">{lead.services.map((service) => <span key={service}>{service}</span>)}</div></div>}
+    {lead.website_quality_note && <div className="evidence-block"><h3>Website note</h3><p>{lead.website_quality_note}</p></div>}
+    <div className="evidence-actions">
+      {lead.website && <a className="button ghost" href={lead.website} target="_blank" rel="noreferrer"><ExternalLink />Open site</a>}
+      <NavLink className="button ghost" to={`/outreach?run=${encodeURIComponent(runId)}&domain=${encodeURIComponent(lead.domain)}`}><ShieldCheck />Outreach check</NavLink>
+      <button className="button ghost" onClick={onEdit}><Pencil />Edit</button>
+    </div>
+  </aside>
+}
+
+function shortPath(url: string) {
+  try { const parsed = new URL(url); return parsed.pathname === '/' ? parsed.hostname.replace(/^www\./, '') : parsed.pathname } catch { return url }
 }
 
 type CollectionSummary = { name: string; count: number }
@@ -747,11 +912,11 @@ function CollectionPicker({ collections, selected, onChange }: { collections: Co
   const visible = matching.slice(0, 100)
   const label = selected.length === 0 ? 'All leads' : selected.length === 1 ? selected[0] : `${selected.length} collections`
   return <div className="collection-picker" ref={root}>
-    <button type="button" className={`collection-picker-trigger ${selected.length ? 'has-selection' : ''}`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((value) => !value)}><Layers3 /><span><small>Collection</small><strong>{label}</strong></span><ChevronDown /></button>
+    <button type="button" className={`collection-picker-trigger ${selected.length ? 'has-selection' : ''}`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((value) => !value)}><Layers3 /><span><small>Collection</small> <strong>{label}</strong></span><ChevronDown /></button>
     {open && <div className="collection-picker-popover" role="dialog" aria-label="Choose collections">
       <div className="collection-picker-search"><Search /><input ref={search} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search collections" aria-label="Search collections" /><select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} aria-label="Sort collections"><option value="recent">Recent</option><option value="count">Most leads</option><option value="name">Name</option></select></div>
       <button type="button" className={`collection-option collection-option-all ${selected.length === 0 ? 'selected' : ''}`} onClick={() => onChange([])}><Archive /><span><strong>All leads</strong><small>Complete repository</small></span>{selected.length === 0 && <Check />}</button>
-      <div className="collection-option-list">{visible.map((collection) => <label className={`collection-option ${selected.includes(collection.name) ? 'selected' : ''}`} key={collection.name}><input type="checkbox" checked={selected.includes(collection.name)} onChange={() => toggle(collection.name)} /><span><strong>{collection.name}</strong><small>{recent.includes(collection.name) ? 'Recently used' : 'Search collection'}</small></span><em>{collection.count}</em></label>)}</div>
+      <div className="collection-option-list">{visible.map((collection) => <label className={`collection-option ${selected.includes(collection.name) ? 'selected' : ''}`} key={collection.name}><input type="checkbox" checked={selected.includes(collection.name)} onChange={() => toggle(collection.name)} /><span><strong>{collection.name}</strong>{recent.includes(collection.name) && <small>Recently used</small>}</span><em className="num">{collection.count}</em></label>)}</div>
       {!visible.length && <div className="collection-picker-empty"><Search /><span><strong>No collections found</strong><small>Try a shorter search.</small></span></div>}
       <footer><span>{matching.length > visible.length ? `Showing ${visible.length} of ${matching.length}` : `${collections.length} collections`}</span>{selected.length > 0 && <button type="button" onClick={() => onChange([])}>Clear selection</button>}</footer>
     </div>}
@@ -771,7 +936,7 @@ function CollectionManager({ collections, onClose, onChanged }: { collections: C
   const matching = collections.filter((collection) => collection.name.toLowerCase().includes(query.trim().toLowerCase())).sort((left, right) => left.name.localeCompare(right.name))
   const visible = matching.slice(0, 200)
   const toggle = (name: string) => setSelected((current) => current.includes(name) ? current.filter((value) => value !== name) : [...current, name])
-  return <div className="drawer-backdrop" onMouseDown={onClose}><aside ref={dialog} className="drawer collection-manager" role="dialog" aria-modal="true" aria-labelledby="collection-manager-title" onMouseDown={(event) => event.stopPropagation()}><div className="drawer-head"><div><small>Repository structure</small><h2 id="collection-manager-title">Manage collections</h2><span>Rename, merge, or archive categories without deleting leads.</span></div><button ref={closeButton} className="icon-button" onClick={onClose} aria-label="Close collection manager"><X /></button></div>
+  return <div className="drawer-backdrop" onMouseDown={onClose}><aside ref={dialog} className="drawer collection-manager" role="dialog" aria-modal="true" aria-labelledby="collection-manager-title" onMouseDown={(event) => event.stopPropagation()}><div className="drawer-head"><div><h2 id="collection-manager-title">Manage collections</h2><span>Rename, merge or remove collections. Leads are never deleted.</span></div><button ref={closeButton} className="icon-button" onClick={onClose} aria-label="Close collection manager"><X /></button></div>
     <div className="collection-manager-tools"><label className="search-input"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a collection" aria-label="Find a collection" /></label><span>{matching.length > visible.length ? `${visible.length} of ${matching.length}` : `${collections.length} total`}</span></div>
     <div className="collection-manager-list">{visible.map((collection) => <div key={collection.name}><label><input type="checkbox" checked={selected.includes(collection.name)} onChange={() => toggle(collection.name)} /><span><strong>{collection.name}</strong><small>{collection.count} {collection.count === 1 ? 'lead' : 'leads'}</small></span></label><button type="button" className="icon-button destructive" disabled={collection.name === 'Uncategorised' || remove.isPending} onClick={() => { if (window.confirm(`Remove ${collection.name}? Its leads will move to Uncategorised.`)) remove.mutate(collection.name) }} aria-label={`Remove collection ${collection.name}`} title="Move leads to Uncategorised"><Trash2 /></button></div>)}</div>
     <form className="collection-merge-bar" onSubmit={(event) => { event.preventDefault(); merge.mutate() }}><div><strong>{selected.length ? `${selected.length} selected` : 'Select collections'}</strong><small>{selected.length === 1 ? 'Enter a new name to rename it.' : 'Combine selected collections under one name.'}</small></div><input required disabled={!selected.length} value={target} onChange={(event) => setTarget(event.target.value)} placeholder="Target collection name" aria-label="Target collection name" /><button className="button primary" disabled={!selected.length || !target.trim() || merge.isPending}><FolderInput />{selected.length === 1 ? 'Rename' : 'Merge'}</button></form>
@@ -814,22 +979,29 @@ function RepositoryPage() {
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const safePage = Math.min(repositoryPage, pageCount)
   const visibleLeads = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
-  const sourceRuns = new Set(leads.flatMap((lead) => lead.source_run_ids)).size
   const collectionCount = collectionCounts.size
-  return <section>
-    <PageHeader eyebrow="Lead collections" title="Repository" subtitle="Leads stay grouped by the business niche that found them. Continued searches grow the same collection." action={leads.length ? <div className="header-actions"><a className="button ghost" href={api.repositoryExportUrl('json')}><FileJson />All JSON</a><a className="button primary" href={api.repositoryExportUrl('csv')}><Download />Export all CSV</a></div> : undefined} />
-    <div className="repository-overview"><Metric label="Saved leads" value={leads.length} accent /><Metric label="With email" value={leads.filter((lead) => lead.emails?.length || lead.generic_email).length} /><Metric label="With phone" value={leads.filter((lead) => lead.phones?.length || lead.phone).length} /><Metric label="Collections" value={collectionCount || sourceRuns} /></div>
+  const count = (value: number) => value.toLocaleString('en-GB')
+  const summary = [
+    { key: 'leads', value: leads.length, label: leads.length === 1 ? 'saved lead' : 'saved leads' },
+    { key: 'email', value: leads.filter((lead) => lead.emails?.length || lead.generic_email).length, label: 'with email' },
+    { key: 'phone', value: leads.filter((lead) => lead.phones?.length || lead.phone).length, label: 'with phone' },
+    { key: 'collections', value: collectionCount, label: collectionCount === 1 ? 'collection' : 'collections' },
+  ]
+  return <section className="repository-page">
+    <PageHeader title="Repository" subtitle="Leads stay grouped by the business niche that found them. Continued searches grow the same collection." action={leads.length ? <div className="header-actions"><a className="button ghost" href={api.repositoryExportUrl('json')}><FileJson />All JSON</a><a className="button primary" href={api.repositoryExportUrl('csv')}><Download />Export all CSV</a></div> : undefined} />
+    {leads.length > 0 && <p className="repository-summary">{summary.map((item) => <span key={item.key}><strong className="num">{count(item.value)}</strong> {item.label}</span>)}</p>}
     {!leads.length ? <div className="empty-state repository-empty">
       <span className="repository-empty-icon" aria-hidden="true"><Archive /></span>
-      <div className="repository-empty-copy"><span className="eyebrow">Ready for your first collection</span><h2>Your repository is empty</h2><p>Save leads from a completed run. Future imports merge matching domains into the same collection.</p></div>
+      <div className="repository-empty-copy"><h2>Your repository is empty</h2><p>Save leads from a completed run. Future imports merge matching domains into the same collection.</p></div>
       <NavLink className="button primary repository-empty-action" to="/runs"><LayoutList />Browse runs</NavLink>
     </div> : <div className="panel repository-panel">
-      <div className="repository-toolbar"><CollectionPicker collections={collections} selected={selectedCollections} onChange={(values) => { setSelectedCollections(values); setRepositoryPage(1) }} /><label className="search-input"><Search /><input value={filter} onChange={(event) => { setFilter(event.target.value); setRepositoryPage(1) }} placeholder="Search saved leads" aria-label="Search saved leads" /></label><div className="repository-filters"><label><span>Market</span><select aria-label="Filter by market" value={area} onChange={(event) => { setArea(event.target.value); setRepositoryPage(1) }}><option value="">All markets</option>{areas.map((value) => <option key={value}>{value}</option>)}</select></label><label><span>Source</span><select aria-label="Filter by source" value={source} onChange={(event) => { setSource(event.target.value); setRepositoryPage(1) }}><option value="">All sources</option><option value="local">Local index</option><option value="web">Live web</option></select></label></div><button type="button" className="icon-button collection-manage-button" onClick={() => setManagingCollections(true)} aria-label="Manage collections" title="Manage collections"><Settings /></button><span className="table-count">{filtered.length} leads</span></div>
+      <div className="repository-toolbar"><div className="repository-collection-control"><CollectionPicker collections={collections} selected={selectedCollections} onChange={(values) => { setSelectedCollections(values); setRepositoryPage(1) }} /><button type="button" className="icon-button collection-manage-button" onClick={() => setManagingCollections(true)} aria-label="Manage collections" title="Manage collections"><Settings /></button></div><label className="search-input repository-search"><Search /><input value={filter} onChange={(event) => { setFilter(event.target.value); setRepositoryPage(1) }} placeholder="Search saved leads" aria-label="Search saved leads" /></label><div className="repository-filters"><label className={area ? 'is-set' : undefined}><span>Market</span><select aria-label="Filter by market" value={area} onChange={(event) => { setArea(event.target.value); setRepositoryPage(1) }}><option value="">All markets</option>{areas.map((value) => <option key={value}>{value}</option>)}</select></label><label className={source ? 'is-set' : undefined}><span>Source</span><select aria-label="Filter by source" value={source} onChange={(event) => { setSource(event.target.value); setRepositoryPage(1) }}><option value="">All sources</option><option value="local">Local index</option><option value="web">Live web</option></select></label></div><span className="table-count">{filtered.length} {filtered.length === 1 ? 'lead' : 'leads'}</span></div>
       {selectedCollections.length > 0 && <div className="active-collection-filters" aria-label="Active collection filters">{selectedCollections.map((collection) => <button type="button" key={collection} onClick={() => setSelectedCollections(selectedCollections.filter((value) => value !== collection))}>{collection}<X /></button>)}<button type="button" className="clear-collection-filters" onClick={() => setSelectedCollections([])}>Clear all</button></div>}
       {remove.error && <ErrorPanel error={remove.error} />}
       {!filtered.length ? <div className="repository-no-results"><Search /><div><strong>No matching leads</strong><span>Adjust the search or clear the active filters.</span></div><button type="button" className="button ghost" onClick={() => { setFilter(''); setArea(''); setSource(''); setSelectedCollections([]) }}>Clear filters</button></div> : <>
-        <div className="table-wrap"><table><thead><tr><th>Business</th><th>Collection</th><th>Area</th><th>Email</th><th>Phone</th><th>Evidence</th><th>Score</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{visibleLeads.map((lead) => <RepositoryRow key={lead.domain} lead={lead} removing={remove.isPending} onEdit={() => setEditing({ lead, mode: 'edit' })} onMove={() => setEditing({ lead, mode: 'move' })} onRemove={() => { if (window.confirm(`Remove ${lead.business_name || lead.domain} from the repository?`)) remove.mutate(lead.domain) }} />)}</tbody></table></div>
-        {pageCount > 1 && <nav className="table-pagination" aria-label="Repository pages"><button type="button" className="button ghost" disabled={safePage === 1} onClick={() => setRepositoryPage((page) => Math.max(1, page - 1))}>Previous</button><span>Page {safePage} of {pageCount}</span><button type="button" className="button ghost" disabled={safePage === pageCount} onClick={() => setRepositoryPage((page) => Math.min(pageCount, page + 1))}>Next</button></nav>}
+        <div className="table-wrap"><table><thead><tr><th>Business</th><th>Collection</th><th>Area</th><th>Email</th><th>Phone</th><th>Sources</th><th>Score</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{visibleLeads.map((lead) => <RepositoryRow key={lead.domain} lead={lead} removing={remove.isPending} onEdit={() => setEditing({ lead, mode: 'edit' })} onMove={() => setEditing({ lead, mode: 'move' })} onRemove={() => { if (window.confirm(`Remove ${lead.business_name || lead.domain} from the repository?`)) remove.mutate(lead.domain) }} />)}</tbody></table></div>
+        <div className="table-foot repository-foot"><span className="trig-legend" aria-label="Evidence key"><TrigMark level={3} /> Link or record <TrigMark level={2} /> Page text <TrigMark level={1} /> AI only</span>
+        {pageCount > 1 && <nav className="table-pagination" aria-label="Repository pages"><button type="button" className="button ghost" disabled={safePage === 1} onClick={() => setRepositoryPage((page) => Math.max(1, page - 1))}>Previous</button><span>Page {safePage} of {pageCount}</span><button type="button" className="button ghost" disabled={safePage === pageCount} onClick={() => setRepositoryPage((page) => Math.min(pageCount, page + 1))}>Next</button></nav>}</div>
       </>}
     </div>}
     {editing && <RepositoryLeadDrawer lead={editing.lead} collections={niches} mode={editing.mode} onClose={() => setEditing(null)} />}
@@ -839,7 +1011,13 @@ function RepositoryPage() {
 
 function RepositoryRow({ lead, removing, onEdit, onMove, onRemove }: { lead: RepositoryLead; removing: boolean; onEdit: () => void; onMove: () => void; onRemove: () => void }) {
   const name = <>{lead.business_name || lead.domain}<small>{lead.domain}</small></>
-  return <tr><td data-label="Business">{lead.website ? <a className="business-link" href={lead.website} target="_blank" rel="noreferrer">{name}</a> : <span className="business-link">{name}</span>}</td><td data-label="Collection"><span className="collection-stack">{(lead.niches?.length ? lead.niches : [lead.business_type]).filter(Boolean).slice(0, 2).map((value) => <em key={value}>{value}</em>)}</span></td><td data-label="Area">{lead.city_or_area || <span className="muted">Not found</span>}</td><td data-label="Email"><ContactStack values={lead.emails?.length ? lead.emails : [lead.generic_email]} kind="email" /></td><td data-label="Phone"><ContactStack values={lead.phones?.length ? lead.phones : [lead.phone]} kind="phone" /></td><td data-label="Evidence"><span className="repository-sources">{(lead.sources ?? []).map((value) => <em className={`source-${value}`} role="img" aria-label={value === 'local' ? 'Local file' : 'Web result'} title={value === 'local' ? 'This lead includes local database evidence' : 'This lead includes web evidence'} key={value}>{value === 'local' ? <Database /> : <Search />}</em>)}<small>{lead.source_run_ids.length} {lead.source_run_ids.length === 1 ? 'run' : 'runs'}</small></span></td><td data-label="Score"><span className="score">{lead.lead_score}/10</span></td><td className="repository-actions"><span className="row-actions"><button className="icon-button" onClick={onEdit} aria-label={`Edit ${lead.domain}`} title="Edit lead"><Pencil /></button><button className="icon-button" onClick={onMove} aria-label={`Move ${lead.domain}`} title="Move to collection"><FolderInput /></button><button className="icon-button destructive" disabled={removing} onClick={onRemove} aria-label={`Remove ${lead.domain}`} title="Remove from repository"><Trash2 /></button></span></td></tr>
+  const contacts = (field: 'email' | 'phone') => {
+    const { value, evidence, level } = leadEvidence(lead, field)
+    const values = [...new Set([value, ...((field === 'email' ? lead.emails : lead.phones) ?? [])].filter((item): item is string => Boolean(item)))].slice(0, 3)
+    if (!values.length) return <span className="muted evidence-missing">{field === 'email' ? 'No public email' : 'No phone'}</span>
+    return <span className={`repository-contacts ${field === 'phone' ? 'num' : ''}`}>{values.map((item, index) => <span key={item} className="evidence-cell">{evidence && <TrigMark level={index === 0 ? level : 0} />}<a href={`${field === 'email' ? 'mailto:' : 'tel:'}${item}`} title={item}>{item}</a></span>)}</span>
+  }
+  return <tr><td data-label="Business">{lead.website ? <a className="business-link" href={lead.website} target="_blank" rel="noreferrer">{name}</a> : <span className="business-link">{name}</span>}</td><td data-label="Collection"><span className="collection-stack">{(lead.niches?.length ? lead.niches : [lead.business_type]).filter(Boolean).slice(0, 2).map((value) => <em key={value} title={value}>{value}</em>)}</span></td><td data-label="Area">{lead.city_or_area || <span className="muted">Not found</span>}</td><td data-label="Email">{contacts('email')}</td><td data-label="Phone">{contacts('phone')}</td><td data-label="Sources"><span className="repository-sources">{(lead.sources ?? []).map((value) => <em className={`source-${value}`} role="img" aria-label={value === 'local' ? 'Local file' : 'Web result'} title={value === 'local' ? 'This lead includes local database evidence' : 'This lead includes web evidence'} key={value}>{value === 'local' ? <Database /> : <Search />}</em>)}<small>{lead.source_run_ids.length} {lead.source_run_ids.length === 1 ? 'run' : 'runs'}</small></span></td><td data-label="Score"><ScoreRamp score={lead.lead_score} reason={lead.lead_reason} /></td><td className="repository-actions"><span className="row-actions"><button className="icon-button" onClick={onEdit} aria-label={`Edit ${lead.domain}`} title="Edit lead"><Pencil /></button><button className="icon-button" onClick={onMove} aria-label={`Move ${lead.domain}`} title="Move to collection"><FolderInput /></button><button className="icon-button destructive" disabled={removing} onClick={onRemove} aria-label={`Remove ${lead.domain}`} title="Remove from repository"><Trash2 /></button></span></td></tr>
 }
 
 function RepositoryLeadDrawer({ lead, collections, mode, onClose }: { lead: RepositoryLead; collections: string[]; mode: 'edit' | 'move'; onClose: () => void }) {
@@ -850,7 +1028,7 @@ function RepositoryLeadDrawer({ lead, collections, mode, onClose }: { lead: Repo
   const save = useMutation({ mutationFn: () => api.updateRepositoryLead(lead.domain, mode === 'move' ? { collection: form.collection } : { business_name: form.business_name, city_or_area: form.city_or_area, website: form.website, emails: splitContacts(form.emails), phones: splitContacts(form.phones) }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['repository'] }); onClose() } })
   useDialogFocus(dialog, onClose)
   useEffect(() => { closeButton.current?.focus() }, [])
-  return <div className="drawer-backdrop" onMouseDown={onClose}><aside ref={dialog} className="drawer repository-drawer" role="dialog" aria-modal="true" aria-labelledby="repository-drawer-title" onMouseDown={(event) => event.stopPropagation()}><div className="drawer-head"><div><small>{mode === 'move' ? 'Move to collection' : 'Repository lead'}</small><h2 id="repository-drawer-title">{lead.business_name || lead.domain}</h2><span>{lead.domain}</span></div><button ref={closeButton} className="icon-button" onClick={onClose} aria-label="Close repository editor"><X /></button></div>
+  return <div className="drawer-backdrop" onMouseDown={onClose}><aside ref={dialog} className="drawer repository-drawer" role="dialog" aria-modal="true" aria-labelledby="repository-drawer-title" onMouseDown={(event) => event.stopPropagation()}><div className="drawer-head"><div><h2 id="repository-drawer-title">{lead.business_name || lead.domain}</h2><span>{mode === 'move' ? 'Move to another collection' : 'Edit saved lead'}<b aria-hidden="true" /><code>{lead.domain}</code></span></div><button ref={closeButton} className="icon-button" onClick={onClose} aria-label="Close repository editor"><X /></button></div>
     <form className="detail-section edit-form repository-edit-form" onSubmit={(event) => { event.preventDefault(); save.mutate() }}>
       {mode === 'edit' && <><label>Business name<input value={form.business_name} onChange={(event) => setForm({ ...form, business_name: event.target.value })} /></label><label>Area<input value={form.city_or_area} onChange={(event) => setForm({ ...form, city_or_area: event.target.value })} /></label><label>Website<input type="url" value={form.website} onChange={(event) => setForm({ ...form, website: event.target.value })} /></label><label>Emails<textarea value={form.emails} onChange={(event) => setForm({ ...form, emails: event.target.value })} placeholder="One email per line" /></label><label>Phone numbers<textarea value={form.phones} onChange={(event) => setForm({ ...form, phones: event.target.value })} placeholder="One number per line" /></label></>}
       <label>Collection<input required list="repository-collections" value={form.collection} onChange={(event) => setForm({ ...form, collection: event.target.value })} placeholder="Business niche" /></label><datalist id="repository-collections">{collections.map((collection) => <option key={collection} value={collection} />)}</datalist>
@@ -912,11 +1090,18 @@ function OutreachPage() {
   const createBulk = useMutation({ mutationFn: () => api.createDraftsBulk({ ...campaignPayload, domain: undefined, domains: preflightSelection }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['outreach-drafts'] }); setPreflightSelection([]); preflight.reset() } })
   const approveBulk = useMutation({ mutationFn: () => api.approveDraftsBulk(auditSelection, { reviewed_by: bulkReviewer, corporate_status_confirmed: bulkEligibility, privacy_notice_confirmed: bulkPrivacy }), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['outreach-drafts'] }); setAuditSelection([]); setBulkEligibility(false); setBulkPrivacy(false) } })
   const exportBulk = useMutation({ mutationFn: () => api.exportOutreach(auditSelection), onSuccess: (blob) => { downloadBlob(blob, 'approved_outreach.json'); queryClient.invalidateQueries({ queryKey: ['outreach-drafts'] }); setAuditSelection([]) } })
-  const sendBulk = useMutation({ mutationFn: () => api.sendOutreach(auditSelection, activeEmailAccountId), onSuccess: (job) => { setSendJobId(job.id); setAuditSelection([]); queryClient.invalidateQueries({ queryKey: ['outreach-drafts'] }) } })
+  const sendBulk = useMutation({ mutationFn: () => api.sendOutreach(auditSelection, activeEmailAccountId), onSuccess: (job) => { setSendJobId(job.id); setAuditSelection([]); queryClient.invalidateQueries({ queryKey: ['outreach-drafts'] }); queryClient.invalidateQueries({ queryKey: ['outreach-budget'] }) } })
   const sendJob = useQuery({ queryKey: ['outreach-send', sendJobId], queryFn: () => api.outreachSendStatus(sendJobId), enabled: Boolean(sendJobId), refetchInterval: (query) => ['completed', 'failed', 'stopped'].includes(query.state.data?.status ?? '') ? false : 750 })
   const stopSend = useMutation({ mutationFn: () => api.stopOutreachSend(sendJobId), onSuccess: () => sendJob.refetch() })
   const sendStatus = sendJob.data?.status ?? ''
-  useEffect(() => { if (['completed', 'failed', 'stopped'].includes(sendStatus)) queryClient.invalidateQueries({ queryKey: ['outreach-drafts'] }) }, [sendStatus, queryClient])
+  useEffect(() => { if (['completed', 'failed', 'stopped'].includes(sendStatus)) { queryClient.invalidateQueries({ queryKey: ['outreach-drafts'] }); queryClient.invalidateQueries({ queryKey: ['outreach-budget'] }) } }, [sendStatus, queryClient])
+  // The same 25-a-day budget the rail shows: a selection cannot be sent past what is left today.
+  const budget = useQuery({ queryKey: ['outreach-budget'], queryFn: api.outreachBudget, refetchInterval: 60_000, staleTime: 30_000 })
+  const budgetUsed = budget.data ? Math.min(budget.data.limit, budget.data.sent + budget.data.reserved) : 0
+  const budgetLeft = budget.data ? Math.max(0, budget.data.limit - budgetUsed) : undefined
+  const overBudget = budgetLeft !== undefined && auditSelection.length > budgetLeft
+  const statusCounts = (drafts.data ?? []).reduce<Record<string, number>>((counts, draft) => ({ ...counts, [draft.status]: (counts[draft.status] ?? 0) + 1 }), {})
+  const queueSummary = ([['draft', 'to review'], ['approved', 'approved'], ['queued', 'queued'], ['sending', 'sending'], ['sent', 'sent'], ['exported', 'exported'], ['uncertain', 'uncertain'], ['blocked', 'blocked']] as const).filter(([status]) => statusCounts[status])
   const suppress = useMutation({ mutationFn: () => api.addSuppression(suppressionForm), onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['suppressions'] }); setSuppressionForm({ ...suppressionForm, value: '', reason: '' }) } })
   const eligibleDomains = preflight.data?.results.filter((item) => item.eligible).map((item) => item.domain) ?? []
   const selectedDrafts = drafts.data?.filter((draft) => auditSelection.includes(draft.id)) ?? []
@@ -925,34 +1110,36 @@ function OutreachPage() {
   const toggleAudit = (id: string) => setAuditSelection((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
   const dependencyError = runs.error || workspaceSettings.error || emailAccounts.error || suppressions.error
   const dependenciesLoading = runs.isLoading || workspaceSettings.isLoading || emailAccounts.isLoading || suppressions.isLoading
-  return <section>
-    <PageHeader eyebrow="Compliance desk" title="Outreach review" subtitle="Turn verified leads into reviewed outreach, individually or in one controlled batch." />
+  return <section className="outreach-page">
+    <PageHeader title="Outreach review" subtitle="Turn verified leads into reviewed outreach, individually or in one controlled batch." />
     {dependenciesLoading && <div className="dependency-state" role="status"><RefreshCw className="spin" />Loading runs, senders, and compliance records...</div>}
     {dependencyError && <div className="dependency-error"><ErrorPanel error={dependencyError as Error} /><button type="button" className="button ghost" onClick={() => { runs.refetch(); workspaceSettings.refetch(); emailAccounts.refetch(); suppressions.refetch() }}><RefreshCw />Retry workspace data</button></div>}
     {!emailAccounts.isLoading && !emailAccounts.error && emailAccounts.data?.accounts.length === 0 && <div className="dependency-state"><Mail /><span>No sender account is connected. Draft creation still works, but delivery requires an account in <NavLink to="/settings">Settings</NavLink>.</span></div>}
-    <div className="compliance-notice"><span className="notice-icon"><ShieldCheck /></span><div><strong>Human approval before delivery</strong><p>Leadroom can send approved drafts through your connected mailbox. Every recipient is checked against suppression records immediately before delivery.</p></div><span className="notice-badge">Controlled send</span></div>
+    <div className="compliance-notice"><span className="notice-icon"><ShieldCheck /></span><div><strong>Human approval before delivery</strong><p>Leadroom can send approved drafts through your connected mailbox. Every recipient is checked against suppression records immediately before delivery.</p></div><span className="notice-badge">Controlled send{budget.data && <small><strong className="num">{budget.data.sent}</strong> of <span className="num">{budget.data.limit}</span> sent today</small>}</span></div>
     <div className="outreach-mode-switch" role="group" aria-label="Draft creation mode"><button type="button" aria-pressed={mode === 'bulk'} className={mode === 'bulk' ? 'active' : ''} onClick={() => setMode('bulk')}><Layers3 />Bulk campaign<small>Process a complete run</small></button><button type="button" aria-pressed={mode === 'single'} className={mode === 'single' ? 'active' : ''} onClick={() => setMode('single')}><Mail />Single lead<small>Handle an exception</small></button></div>
     <div className="compliance-layout">
-      <form className="panel compliance-form draft-form" onSubmit={(e) => { e.preventDefault(); if (mode === 'bulk') preflight.mutate(); else create.mutate() }}><header><div><small>{mode === 'bulk' ? 'Campaign builder' : 'Draft builder'}</small><h2>{mode === 'bulk' ? 'Prepare a batch' : 'Prepare one lead'}</h2><p>{mode === 'bulk' ? 'Choose a completed run and set the shared campaign details once.' : 'Use verified lead evidence to create a reviewable draft.'}</p></div>{mode === 'bulk' ? <Layers3 /> : <Mail />}</header>
-        <div className="form-grid"><label>Source run<select required value={draftForm.run_id} onChange={(e) => { setDraftForm({ ...draftForm, run_id: e.target.value }); preflight.reset(); setPreflightSelection([]) }}><option value="">Select a run</option>{runs.data?.map((run) => <option key={run.id} value={run.id}>{run.run_name} ({run.counts?.completed ?? 0} leads)</option>)}</select></label>{mode === 'single' && <label>Lead domain<input required value={draftForm.domain} onChange={(e) => setDraftForm({ ...draftForm, domain: e.target.value })} placeholder="example.com" /></label>}
-          <label>Subscriber type<select value={draftForm.subscriber_type} onChange={(e) => setDraftForm({ ...draftForm, subscriber_type: e.target.value })}><option value="corporate">Corporate body</option><option value="sole_trader">Sole trader</option><option value="unknown">Unknown</option></select></label>
+      <form className="panel compliance-form draft-form" onSubmit={(e) => { e.preventDefault(); if (mode === 'bulk') preflight.mutate(); else create.mutate() }}><header><div><h2>{mode === 'bulk' ? 'Campaign brief' : 'Brief for one lead'}</h2><p>{mode === 'bulk' ? 'Choose a completed run and set the shared campaign details once.' : 'Use verified lead evidence to create a reviewable draft.'}</p></div></header>
+        <fieldset className="brief-group"><legend>Recipients</legend><div className="form-grid"><label>Source run<select required value={draftForm.run_id} onChange={(e) => { setDraftForm({ ...draftForm, run_id: e.target.value }); preflight.reset(); setPreflightSelection([]) }}><option value="">Select a run</option>{runs.data?.map((run) => <option key={run.id} value={run.id}>{run.run_name} ({run.counts?.completed ?? 0} leads)</option>)}</select></label>{mode === 'single' && <label>Lead domain<input required value={draftForm.domain} onChange={(e) => setDraftForm({ ...draftForm, domain: e.target.value })} placeholder="example.com" /></label>}
+          <label>Subscriber type<select value={draftForm.subscriber_type} onChange={(e) => setDraftForm({ ...draftForm, subscriber_type: e.target.value })}><option value="corporate">Corporate body</option><option value="sole_trader">Sole trader</option><option value="unknown">Unknown</option></select></label></div></fieldset>
+        <fieldset className="brief-group"><legend>Sender and lawful basis</legend><div className="form-grid">
           <label>Sender identity<input required value={draftForm.sender_identity} onChange={(e) => setDraftForm({ ...draftForm, sender_identity: e.target.value })} placeholder="Company or sender name" /></label>
-          <label className="span-2">Lawful-basis note<input required minLength={10} value={draftForm.lawful_basis_note} onChange={(e) => setDraftForm({ ...draftForm, lawful_basis_note: e.target.value })} placeholder="Record the evidence supporting this contact" /></label>
           <label>Opt-out address<input required type="email" value={draftForm.opt_out_address} onChange={(e) => setDraftForm({ ...draftForm, opt_out_address: e.target.value })} placeholder="privacy@example.com" /></label>
-          <label className="option-toggle"><span className="option-toggle-icon"><ShieldCheck /></span><span className="option-toggle-copy"><strong>Consent recorded</strong><small>Required for unknown or sole traders</small></span><input type="checkbox" role="switch" checked={draftForm.consent_confirmed} onChange={(e) => setDraftForm({ ...draftForm, consent_confirmed: e.target.checked })} /></label>
+          <label>Lawful-basis note<input required minLength={10} value={draftForm.lawful_basis_note} onChange={(e) => setDraftForm({ ...draftForm, lawful_basis_note: e.target.value })} placeholder="Record the evidence supporting this contact" /></label>
+          <label className="option-toggle"><span className="option-toggle-icon"><ShieldCheck /></span><span className="option-toggle-copy"><strong>Consent recorded</strong><small>Required for unknown or sole traders</small></span><input type="checkbox" role="switch" checked={draftForm.consent_confirmed} onChange={(e) => setDraftForm({ ...draftForm, consent_confirmed: e.target.checked })} /></label></div></fieldset>
+        <fieldset className="brief-group"><legend>Message</legend><div className="form-grid">
           <label>Tone<select value={draftForm.tone} onChange={(e) => setDraftForm({ ...draftForm, tone: e.target.value })}><option value="professional">Professional</option><option value="warm">Warm</option><option value="concise">Concise</option><option value="friendly">Friendly</option></select></label><label className="option-toggle"><span className="option-toggle-icon"><Sparkles /></span><span className="option-toggle-copy"><strong>AI personalization</strong><small>Grounded in each lead's evidence</small></span><input type="checkbox" role="switch" checked={draftForm.ai_personalize} onChange={(e) => setDraftForm({ ...draftForm, ai_personalize: e.target.checked })} /></label>
-          <label className="span-2">Base message<textarea required minLength={10} value={draftForm.offer_summary} onChange={(e) => setDraftForm({ ...draftForm, offer_summary: e.target.value })} placeholder="Write the core offer, outcome, and call to action. You can use {business_name}, {service}, and {location}." /></label><label className="span-2">Links<textarea className="campaign-links" value={draftForm.links} onChange={(e) => setDraftForm({ ...draftForm, links: e.target.value })} placeholder={'https://example.com/opt-in\nhttps://example.com/case-study'} /></label></div>
+          <label className="span-2">Base message<textarea required minLength={10} value={draftForm.offer_summary} onChange={(e) => setDraftForm({ ...draftForm, offer_summary: e.target.value })} placeholder="Write the core offer, outcome, and call to action. You can use {business_name}, {service}, and {location}." /></label><label className="span-2">Links<textarea className="campaign-links" value={draftForm.links} onChange={(e) => setDraftForm({ ...draftForm, links: e.target.value })} placeholder={'https://example.com/opt-in\nhttps://example.com/case-study'} /></label></div></fieldset>
         {(create.error || preflight.error || createBulk.error) && <ErrorPanel error={(create.error || preflight.error || createBulk.error) as Error} />}
-        {mode === 'bulk' && preflight.data && <div className="bulk-preflight"><div className="preflight-summary"><span><strong>{preflight.data.eligible}</strong>Ready</span><span><strong>{preflight.data.blocked}</strong>Blocked</span><span><strong>{preflight.data.total}</strong>Checked</span><button type="button" className="button ghost" onClick={() => setPreflightSelection(preflightSelection.length === eligibleDomains.length ? [] : eligibleDomains)}>{preflightSelection.length === eligibleDomains.length ? 'Clear eligible' : 'Select all eligible'}</button></div><div className="preflight-list">{preflight.data.results.map((item) => <label className={`preflight-row ${item.eligible ? '' : 'blocked'}`} key={item.domain}><input type="checkbox" disabled={!item.eligible} checked={preflightSelection.includes(item.domain)} onChange={() => setPreflightSelection((current) => current.includes(item.domain) ? current.filter((domain) => domain !== item.domain) : [...current, item.domain])} /><span><strong>{item.business_name}</strong><small>{item.email || item.domain}</small></span><em>{item.eligible ? `${item.lead_score}/10` : item.reasons.join(' / ')}</em></label>)}</div></div>}
+        {mode === 'bulk' && preflight.data && <div className="bulk-preflight"><div className="preflight-summary"><p><span className="preflight-ready"><strong className="num">{preflight.data.eligible}</strong> ready</span><span className="preflight-blocked"><strong className="num">{preflight.data.blocked}</strong> blocked</span><span><strong className="num">{preflight.data.total}</strong> checked</span></p><button type="button" className="button ghost" onClick={() => setPreflightSelection(preflightSelection.length === eligibleDomains.length ? [] : eligibleDomains)}>{preflightSelection.length === eligibleDomains.length ? 'Clear eligible' : 'Select all eligible'}</button></div><div className="preflight-list">{preflight.data.results.map((item) => <label className={`preflight-row ${item.eligible ? '' : 'blocked'}`} key={item.domain}><input type="checkbox" disabled={!item.eligible} checked={preflightSelection.includes(item.domain)} onChange={() => setPreflightSelection((current) => current.includes(item.domain) ? current.filter((domain) => domain !== item.domain) : [...current, item.domain])} /><span><strong>{item.business_name}</strong><small>{item.email || item.domain}</small></span>{item.eligible ? <em><ScoreRamp score={item.lead_score} /></em> : <em><CircleStop aria-hidden="true" /><span>{item.reasons.join(' / ')}</span></em>}</label>)}</div></div>}
         <footer><small>{mode === 'bulk' ? 'Suppression, evidence, score, and duplicate checks run before creation.' : 'Drafts enter the audit queue before export.'}</small>{mode === 'bulk' && preflight.data ? <button type="button" className="button primary" disabled={!preflightSelection.length || createBulk.isPending} onClick={() => createBulk.mutate()}><Layers3 />{createBulk.isPending ? 'Creating...' : `Create ${preflightSelection.length} drafts`}</button> : <button className="button primary" disabled={create.isPending || preflight.isPending}><ShieldCheck />{mode === 'bulk' ? preflight.isPending ? 'Checking...' : 'Check eligibility' : create.isPending ? 'Creating...' : 'Create draft'}</button>}</footer>
       </form>
-      <form className="panel compliance-form suppression-form" onSubmit={(e) => { e.preventDefault(); suppress.mutate() }}><header><div><small>Do not contact</small><h2>Suppression list</h2><p>Block an address or entire domain from export.</p></div><CircleStop /></header><div className="form-grid"><label>Type<select value={suppressionForm.kind} onChange={(e) => setSuppressionForm({ ...suppressionForm, kind: e.target.value as 'email' | 'domain' })}><option value="email">Email</option><option value="domain">Domain</option></select></label><label>Value<input required value={suppressionForm.value} onChange={(e) => setSuppressionForm({ ...suppressionForm, value: e.target.value })} placeholder={suppressionForm.kind === 'email' ? 'name@example.com' : 'example.com'} /></label><label className="span-2">Reason<input required value={suppressionForm.reason} onChange={(e) => setSuppressionForm({ ...suppressionForm, reason: e.target.value })} placeholder="Why this contact is blocked" /></label></div>{suppress.error && <ErrorPanel error={suppress.error} />}<button className="button ghost" disabled={suppress.isPending}><Plus />{suppress.isPending ? 'Adding...' : 'Add suppression'}</button>
-        <div className="suppression-list">{suppressions.isLoading && <p className="muted">Loading suppression records...</p>}{suppressions.error && <ErrorPanel error={suppressions.error} />}{suppressions.data?.map((item) => <div key={item.id}><strong>{item.display_hint}</strong><small>{item.reason}</small></div>)}{suppressions.data?.length === 0 && <p className="muted">No suppression records.</p>}</div>
+      <form className="panel compliance-form suppression-form" onSubmit={(e) => { e.preventDefault(); suppress.mutate() }}><header><div><h2>Suppression list</h2><p>Block an address or entire domain from export.</p></div></header><div className="form-grid"><label>Type<select value={suppressionForm.kind} onChange={(e) => setSuppressionForm({ ...suppressionForm, kind: e.target.value as 'email' | 'domain' })}><option value="email">Email</option><option value="domain">Domain</option></select></label><label>Value<input required value={suppressionForm.value} onChange={(e) => setSuppressionForm({ ...suppressionForm, value: e.target.value })} placeholder={suppressionForm.kind === 'email' ? 'name@example.com' : 'example.com'} /></label><label className="span-2">Reason<input required value={suppressionForm.reason} onChange={(e) => setSuppressionForm({ ...suppressionForm, reason: e.target.value })} placeholder="Why this contact is blocked" /></label></div>{suppress.error && <ErrorPanel error={suppress.error} />}<button className="button ghost" disabled={suppress.isPending}><Plus />{suppress.isPending ? 'Adding...' : 'Add suppression'}</button>
+        <div className="suppression-list">{suppressions.isLoading && <p className="muted">Loading suppression records...</p>}{suppressions.error && <ErrorPanel error={suppressions.error} />}{suppressions.data?.map((item) => <div key={item.id}><strong>{item.display_hint}</strong><small><span className="suppression-kind">{item.kind}</span>{item.reason}</small></div>)}{suppressions.data?.length === 0 && <p className="muted">No suppression records.</p>}</div>
       </form>
     </div>
-    <div className="outreach-list"><div className="section-heading"><div><small>Approval workspace</small><h2>Draft audit queue</h2></div><span>{drafts.data?.length ?? 0} drafts</span></div>{drafts.isLoading && <LoadingRows />}{drafts.error && <div className="dependency-error"><ErrorPanel error={drafts.error} /><button type="button" className="button ghost" onClick={() => drafts.refetch()}><RefreshCw />Retry drafts</button></div>}
+    <div className="outreach-list"><div className="section-heading outreach-queue-head"><div><h2>Draft audit queue</h2><p className="queue-summary"><span><strong className="num">{drafts.data?.length ?? 0}</strong> drafts</span>{queueSummary.map(([status, label]) => <span key={status} className={`queue-count queue-${status}`}><i aria-hidden="true" /><strong className="num">{statusCounts[status]}</strong> {label}</span>)}</p></div>{budget.data && <span className="queue-budget"><strong className="num">{budgetLeft}</strong> of <span className="num">{budget.data.limit}</span> sends left today</span>}</div>{drafts.isLoading && <LoadingRows />}{drafts.error && <div className="dependency-error"><ErrorPanel error={drafts.error} /><button type="button" className="button ghost" onClick={() => drafts.refetch()}><RefreshCw />Retry drafts</button></div>}
       {sendJob.data && <div className={`send-queue send-${sendJob.data.status}`} aria-live="polite"><div><span><Send /><strong>{sendJob.data.status === 'sending' ? 'Sending campaign' : sendJob.data.message}</strong><small>{sendJob.data.completed} of {sendJob.data.total} processed / {sendJob.data.sent} sent / {sendJob.data.failed} failed{sendJob.data.email_account_label ? ` / via ${sendJob.data.email_account_label}` : ''}</small></span><em>{sendJob.data.percent}%</em></div><div className="progress-track" role="progressbar" aria-label="Campaign delivery progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={sendJob.data.percent}><span style={{ width: `${sendJob.data.percent}%` }} /></div>{['queued', 'sending'].includes(sendJob.data.status) && <button className="button ghost" disabled={stopSend.isPending} onClick={() => stopSend.mutate()}><CircleStop />Stop</button>}</div>}
-      {auditSelection.length > 0 && <div className="bulk-audit-toolbar"><div><strong>{auditSelection.length} selected</strong><small>{selectedAreDrafts ? 'Ready for one approval decision' : selectedAreApproved ? 'Choose a sender, then send or export' : 'Select items with the same status'}</small></div>{selectedAreDrafts && <><label>Reviewer<input value={bulkReviewer} onChange={(e) => setBulkReviewer(e.target.value)} placeholder="Your name" /></label><label className="checkbox-label"><input type="checkbox" checked={bulkEligibility} onChange={(e) => setBulkEligibility(e.target.checked)} />Status checked</label><label className="checkbox-label"><input type="checkbox" checked={bulkPrivacy} onChange={(e) => setBulkPrivacy(e.target.checked)} />Privacy checked</label><button className="button primary" disabled={!bulkReviewer || !bulkEligibility || !bulkPrivacy || approveBulk.isPending} onClick={() => approveBulk.mutate()}><ShieldCheck />Approve {auditSelection.length}</button></>}{selectedAreApproved && <><label className="outreach-sender-select"><span>Send from</span><select aria-label="Send from" value={activeEmailAccountId} onChange={(event) => setEmailAccountId(event.target.value)}><option value="">Select account</option>{emailAccounts.data?.accounts.map((account) => <option value={account.id} key={account.id}>{account.label} - {account.from_email}</option>)}</select></label><button className="button primary" disabled={!workspaceSettings.data?.email_configured || !activeEmailAccountId || auditSelection.length > 25 || sendBulk.isPending} onClick={() => sendBulk.mutate()} title={workspaceSettings.data?.email_configured ? 'Send approved emails' : 'Connect an email account in Settings'}><Send />{sendBulk.isPending ? 'Queueing...' : `Send ${auditSelection.length}`}</button><button className="button ghost" disabled={auditSelection.length > 25 || exportBulk.isPending} onClick={() => exportBulk.mutate()}><Download />Export</button></>}<button className="icon-button" onClick={() => setAuditSelection([])} aria-label="Clear selection"><X /></button></div>}
+      {auditSelection.length > 0 && <div className="bulk-audit-toolbar"><div><strong>{auditSelection.length} selected</strong><small>{selectedAreDrafts ? 'Ready for one approval decision' : selectedAreApproved ? 'Choose a sender, then send or export' : 'Select items with the same status'}</small></div>{selectedAreDrafts && <><label>Reviewer<input value={bulkReviewer} onChange={(e) => setBulkReviewer(e.target.value)} placeholder="Your name" /></label><label className="checkbox-label"><input type="checkbox" checked={bulkEligibility} onChange={(e) => setBulkEligibility(e.target.checked)} />Status checked</label><label className="checkbox-label"><input type="checkbox" checked={bulkPrivacy} onChange={(e) => setBulkPrivacy(e.target.checked)} />Privacy checked</label><button className="button primary" disabled={!bulkReviewer || !bulkEligibility || !bulkPrivacy || approveBulk.isPending} onClick={() => approveBulk.mutate()}><ShieldCheck />Approve {auditSelection.length}</button></>}{selectedAreApproved && <><label className="outreach-sender-select"><span>Send from</span><select aria-label="Send from" value={activeEmailAccountId} onChange={(event) => setEmailAccountId(event.target.value)}><option value="">Select account</option>{emailAccounts.data?.accounts.map((account) => <option value={account.id} key={account.id}>{account.label} - {account.from_email}</option>)}</select></label>{budget.data && <span className={`send-tally ${overBudget ? 'is-over' : ''}`}><span className="send-tally-cells" aria-hidden="true">{Array.from({ length: budget.data.limit }, (_, cell) => <i key={cell} className={cell < budgetUsed ? 'used' : cell < budgetUsed + auditSelection.length ? 'selected' : ''} />)}</span><small>{overBudget ? <>Only <strong className="num">{budgetLeft}</strong> left today</> : <><strong className="num">{auditSelection.length}</strong> of <span className="num">{budgetLeft}</span> left today</>}</small></span>}<button className="button primary" disabled={!workspaceSettings.data?.email_configured || !activeEmailAccountId || auditSelection.length > 25 || overBudget || sendBulk.isPending} onClick={() => sendBulk.mutate()} title={!workspaceSettings.data?.email_configured ? 'Connect an email account in Settings' : overBudget ? `Only ${budgetLeft} sends are left today` : 'Send approved emails'}><Send />{sendBulk.isPending ? 'Queueing...' : `Send ${auditSelection.length}`}</button><button className="button ghost" disabled={auditSelection.length > 25 || exportBulk.isPending} onClick={() => exportBulk.mutate()}><Download />Export</button></>}<button className="icon-button" onClick={() => setAuditSelection([])} aria-label="Clear selection"><X /></button></div>}
       {(approveBulk.error || exportBulk.error || sendBulk.error || sendJob.error || stopSend.error) && <ErrorPanel error={(approveBulk.error || exportBulk.error || sendBulk.error || sendJob.error || stopSend.error) as Error} />}{drafts.data?.map((draft) => <OutreachDraftRow key={draft.id} draft={draft} selected={auditSelection.includes(draft.id)} onSelect={() => toggleAudit(draft.id)} />)}{drafts.data?.length === 0 && <div className="panel empty-inline outreach-empty"><ShieldCheck /><div><h2>No drafts waiting</h2><p>New drafts will appear here for evidence and consent review.</p></div></div>}</div>
   </section>
 }
@@ -965,10 +1152,14 @@ function OutreachDraftRow({ draft, selected, onSelect }: { draft: OutreachDraft;
   const [eligibility, setEligibility] = useState(false)
   const [privacy, setPrivacy] = useState(false)
   const approve = useMutation({ mutationFn: () => api.approveDraft(draft.id, { reviewed_by: reviewedBy, corporate_status_confirmed: eligibility, privacy_notice_confirmed: privacy }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['outreach-drafts'] }) })
-  const exportDraft = useMutation({ mutationFn: () => api.exportOutreach([draft.id]), onSuccess: (blob) => { const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'approved_outreach.json'; anchor.click(); URL.revokeObjectURL(url); queryClient.invalidateQueries({ queryKey: ['outreach-drafts'] }) } })
-  return <article className={`outreach-row ${selected ? 'selected' : ''}`}><div className="outreach-head"><label className="audit-selector" title="Select for bulk action"><input type="checkbox" checked={selected} disabled={!['draft', 'approved'].includes(draft.status)} onChange={onSelect} /><span><Check /></span></label><div><strong>{draft.subject}</strong><small>{draft.recipient_email} / {draft.lead_domain}</small></div><StatusBadge status={draft.status} /></div>{draft.delivery_error && <div className="delivery-error"><AlertTriangle /><span><strong>Last send failed</strong><small>{draft.delivery_error}</small></span></div>}<pre>{draft.body}</pre><div className="audit-note"><small>Lawful basis</small><p>{draft.lawful_basis_note}</p></div>
+  const exportDraft = useMutation({ mutationFn: () => api.exportOutreach([draft.id]), onSuccess: (blob) => { downloadBlob(blob, 'approved_outreach.json'); queryClient.invalidateQueries({ queryKey: ['outreach-drafts'] }) } })
+  const selectable = ['draft', 'approved'].includes(draft.status)
+  // Messages still waiting on a person are shown in full; finished ones fold away.
+  const message = <><pre>{draft.body}</pre><div className="audit-note"><small>Lawful basis</small><p>{draft.lawful_basis_note}</p></div></>
+  return <article className={`outreach-row outreach-row-${draft.status} ${selected ? 'selected' : ''}`}><div className="outreach-head"><label className="audit-selector" title={selectable ? 'Select for bulk action' : 'Only drafts and approved messages can be selected'}><input type="checkbox" aria-label={`Select ${draft.subject}`} checked={selected} disabled={!selectable} onChange={onSelect} /><span><Check /></span></label><div><strong>{draft.subject}</strong><small><span>{draft.recipient_email}</span><span className="outreach-domain">{draft.lead_domain}</span></small></div><StatusBadge status={draft.status} /></div>{draft.delivery_error && <div className="delivery-error"><AlertTriangle /><span><strong>Last send failed</strong><small>{draft.delivery_error}</small></span></div>}
+    {selectable ? <div className="outreach-message">{message}</div> : <details className="outreach-message"><summary><ChevronRight aria-hidden="true" />Show message{draft.sent_at ? <span>Sent {formatDate(draft.sent_at)}</span> : null}</summary>{message}</details>}
     {draft.status === 'draft' && <div className="approval-controls"><label>Reviewer<input value={reviewedBy} onChange={(e) => setReviewedBy(e.target.value)} /></label><label className="checkbox-label"><input type="checkbox" checked={eligibility} onChange={(e) => setEligibility(e.target.checked)} />{draft.subscriber_type === 'corporate' ? 'Corporate status checked' : 'Consent evidence checked'}</label><label className="checkbox-label"><input type="checkbox" checked={privacy} onChange={(e) => setPrivacy(e.target.checked)} />Privacy notice checked</label><button className="button primary" disabled={!reviewedBy || !eligibility || !privacy || approve.isPending} onClick={() => approve.mutate()}>Approve</button></div>}
-    {draft.status === 'approved' && <button className="button ghost" disabled={exportDraft.isPending} onClick={() => exportDraft.mutate()}><Download />Export approved draft</button>}
+    {draft.status === 'approved' && <div className="outreach-row-foot"><small><ShieldCheck aria-hidden="true" />Approved{draft.approved_by ? <> by <strong>{draft.approved_by}</strong></> : null}</small><button className="button ghost" disabled={exportDraft.isPending} onClick={() => exportDraft.mutate()}><Download />Export approved draft</button></div>}
     {(approve.error || exportDraft.error) && <ErrorPanel error={(approve.error || exportDraft.error) as Error} />}
   </article>
 }
@@ -981,23 +1172,37 @@ function LocalDataPage() {
   const update = useMutation({ mutationFn: api.updateLocalData, onSuccess: () => { window.setTimeout(() => queryClient.invalidateQueries({ queryKey: ['local-data-status'] }), 800) } })
   const preview = useMutation({ mutationFn: () => api.localDataPreview(niche, location) })
   const data = status.data
-  const coverage = data?.businesses ? [
-    { label: 'Websites', value: data.with_website, tone: 'green' },
-    { label: 'Phone numbers', value: data.with_phone, tone: 'blue' },
-    { label: 'Email addresses', value: data.with_email, tone: 'amber' },
+  const total = data?.businesses ?? 0
+  const coverage = total ? [
+    { label: 'Websites', value: data?.with_website ?? 0 },
+    { label: 'Phone numbers', value: data?.with_phone ?? 0 },
+    { label: 'Email addresses', value: data?.with_email ?? 0 },
   ] : []
+  const engineState = !data ? 'checking' : data.ready ? 'online' : data.database === 'online' ? 'awaiting' : 'offline'
+  const engineLabel = { checking: 'Checking engine', online: 'Index online', awaiting: 'Awaiting dataset', offline: 'Engine offline' }[engineState]
+  const syncStatus = data?.update_status ?? 'not_configured'
+  const engineDetail = [data?.postgis_version ? `PostGIS ${data.postgis_version.split(' ')[0]}` : '', data?.latency_ms ? `${data.latency_ms} ms bridge` : ''].filter(Boolean).join(' · ')
   return <section className="local-data-page">
-    <PageHeader eyebrow="Private data plane" title="Local data engine" subtitle="Search a self-hosted map index before touching the public web." action={<div className="page-actions"><button className="button ghost" onClick={() => status.refetch()} disabled={status.isFetching}><RefreshCw className={status.isFetching ? 'spin' : ''} />Refresh status</button><button className="button primary" onClick={() => update.mutate()} disabled={!data?.ready || update.isPending || data?.update_status === 'running'}><RefreshCw className={update.isPending || data?.update_status === 'running' ? 'spin' : ''} />{data?.update_status === 'running' ? 'Syncing data' : 'Sync now'}</button></div>} />
+    <PageHeader title="Local data engine" subtitle="Search a self-hosted map index before touching the public web." action={<div className="page-actions"><button className="button ghost" onClick={() => status.refetch()} disabled={status.isFetching}><RefreshCw className={status.isFetching ? 'spin' : ''} />Refresh status</button><button className="button primary" onClick={() => update.mutate()} disabled={!data?.ready || update.isPending || data?.update_status === 'running'}><RefreshCw className={update.isPending || data?.update_status === 'running' ? 'spin' : ''} />{data?.update_status === 'running' ? 'Syncing data' : 'Sync now'}</button></div>} />
     {status.error && <ErrorPanel error={status.error} />}
     {update.error && <ErrorPanel error={update.error} />}
-    <section className={`engine-hero ${data?.ready ? 'engine-ready' : ''}`}>
-      <div className="engine-copy"><span className="engine-kicker"><i />{data?.ready ? 'Index online' : data?.database === 'online' ? 'Awaiting dataset' : 'Engine offline'}</span><h2>{data?.ready ? 'Your private discovery index is live.' : 'Build the private discovery layer.'}</h2><p>{data?.message ?? 'Checking PostgreSQL and PostGIS...'}</p><div className="engine-signals"><span><Server />{data?.engine ?? 'PostgreSQL + PostGIS'}</span><span><Cpu />{data?.latency_ms ? `${data.latency_ms} ms bridge` : 'Local compute'}</span><span><LockKeyhole />No paid API</span></div></div>
-      <div className="engine-core" aria-label={data?.ready ? 'Local index online' : 'Local index pending'}><div className="core-grid"><span /><span /><span /><span /><span /><span /><span /><span /><span /></div><div className="core-label"><Database /><strong>{(data?.businesses ?? 0).toLocaleString()}</strong><small>business records</small></div></div>
+    <section className={`engine-status engine-${engineState}`} aria-labelledby="engine-status-title">
+      <div className="engine-status-head">
+        <div className="engine-copy"><div className="engine-title"><h2 id="engine-status-title">{data?.ready ? 'Your private discovery index is live.' : 'Build the private discovery layer.'}</h2><span className={`engine-pill engine-pill-${engineState}`}>{engineLabel}</span></div><p>{data?.message ?? 'Checking PostgreSQL and PostGIS...'}</p></div>
+        <div className={`sync-note sync-note-${syncStatus}`}><RefreshCw className={data?.update_status === 'running' ? 'spin' : ''} /><span><strong>{data?.update_schedule ?? 'Automatic updates'}</strong><small>{data?.update_message ?? 'Checking update service...'}</small></span><span className={`sync-state sync-${syncStatus}`}>{syncStateLabel(data?.update_status)}</span></div>
+      </div>
+      <dl className="engine-metrics engine-facts">
+        <div><dt>Indexed businesses</dt><dd className="num">{total.toLocaleString()}</dd></div>
+        <div><dt>Data current to</dt><dd className={data?.data_timestamp ? 'num' : ''}>{data?.data_timestamp ? formatDate(isoTimestamp(data.data_timestamp)) : 'Unknown'}</dd></div>
+        <div><dt>Last sync</dt><dd className={data?.last_updated_at || data?.last_imported_at ? 'num' : ''}>{lastSyncLabel(data)}</dd></div>
+        <div><dt>Dataset</dt><dd>{data?.dataset ?? 'OpenStreetMap'}</dd></div>
+        <div><dt>Engine</dt><dd>{data?.engine ?? 'PostgreSQL + PostGIS'}{engineDetail && <small className="num">{engineDetail}</small>}</dd></div>
+        <div><dt>Running cost</dt><dd>No paid API, runs on this PC</dd></div>
+      </dl>
     </section>
-    <div className="engine-metrics"><Metric label="Indexed businesses" value={data?.businesses ?? 0} accent /><Metric label="With a website" value={data?.with_website ?? 0} /><Metric label="With a phone" value={data?.with_phone ?? 0} /><Metric label="With an email" value={data?.with_email ?? 0} /></div>
     <section className="engine-workbench">
-      <div className="engine-search"><header><div><span className="eyebrow">Query console</span><h2>Test the local index</h2></div><span className={`engine-state ${data?.ready ? 'online' : ''}`}><i />{data?.ready ? 'Ready' : 'Unavailable'}</span></header><form onSubmit={(event) => { event.preventDefault(); preview.mutate() }}><label>Business niche<input value={niche} onChange={(event) => setNiche(event.target.value)} /></label><label>Location<input value={location} onChange={(event) => setLocation(event.target.value)} /></label><button className="button primary" disabled={!data?.ready || preview.isPending}><ScanSearch />{preview.isPending ? 'Searching...' : 'Run local query'}</button></form>{preview.error && <ErrorPanel error={preview.error} />}{preview.data && <div className="preview-results"><div className="preview-summary"><strong>{preview.data.count} matches</strong><span>{preview.data.elapsed_ms} ms</span></div>{preview.data.results.map((candidate) => <motion.article key={candidate.domain} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}><span className="result-source"><MapPin /></span><div><strong>{candidate.title}</strong><small>{candidate.snippet || candidate.city_or_area}</small></div><div className="result-contact">{candidate.email && <Mail />}{candidate.phone && <Phone />}{candidate.url && <ExternalLink />}</div></motion.article>)}</div>}</div>
-      <aside className="engine-inspector"><header><span><span className="eyebrow">Dataset health</span><h2>Contact coverage</h2></span><span className={`sync-state sync-${data?.update_status ?? 'not_configured'}`}><i />{syncStateLabel(data?.update_status)}</span></header>{coverage.length ? <div className="coverage-list">{coverage.map((item) => { const percent = Math.round(item.value / (data?.businesses || 1) * 100); return <div key={item.label}><span><strong>{item.label}</strong><em>{percent}%</em></span><div><i className={`coverage-${item.tone}`} style={{ width: `${percent}%` }} /></div><small>{item.value.toLocaleString()} records</small></div> })}</div> : <div className="engine-empty"><Database /><strong>No imported records</strong><small>Run the Great Britain import to populate this index.</small></div>}<div className="pipeline-strip"><span><Database /><small>OSM PBF</small></span><ChevronRight /><span><Layers3 /><small>osm2pgsql</small></span><ChevronRight /><span><Server /><small>PostGIS</small></span></div><div className={`sync-note sync-note-${data?.update_status ?? 'not_configured'}`}><RefreshCw className={data?.update_status === 'running' ? 'spin' : ''} /><span><strong>{data?.update_schedule ?? 'Automatic updates'}</strong><small>{data?.update_message ?? 'Checking update service...'}</small></span></div><dl className="engine-facts"><div><dt>Dataset</dt><dd>{data?.dataset ?? 'OpenStreetMap'}</dd></div><div><dt>Last sync</dt><dd>{lastSyncLabel(data)}</dd></div><div><dt>Data as of</dt><dd>{data?.data_timestamp ? formatDate(data.data_timestamp) : 'Unknown'}</dd></div><div><dt>PostGIS</dt><dd>{data?.postgis_version?.split(' ')[0] ?? 'Offline'}</dd></div></dl><a className="osm-attribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a></aside>
+      <section className="engine-search" aria-labelledby="engine-search-title"><header><div><h2 id="engine-search-title">Test the local index</h2><p>Runs one search against the index on this computer. Nothing is sent to the web.</p></div><span className={`engine-state ${data?.ready ? 'online' : ''}`}>{data?.ready ? 'Ready' : 'Unavailable'}</span></header><form onSubmit={(event) => { event.preventDefault(); preview.mutate() }}><label>Business niche<input value={niche} onChange={(event) => setNiche(event.target.value)} /></label><label>Location<input value={location} onChange={(event) => setLocation(event.target.value)} /></label><button className="button primary" disabled={!data?.ready || preview.isPending}><ScanSearch />{preview.isPending ? 'Searching...' : 'Run local query'}</button></form>{preview.error && <ErrorPanel error={preview.error} />}{preview.data && <div className="preview-results"><div className="preview-summary"><strong>{preview.data.count} matches</strong><span className="num">{preview.data.elapsed_ms} ms</span></div>{preview.data.results.map((candidate) => <motion.article key={candidate.domain} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}><span className="result-source"><MapPin /></span><div><strong>{candidate.title}</strong><small>{candidate.snippet || candidate.city_or_area}</small></div><div className="result-contact">{candidate.email && <Mail aria-label="Has email" />}{candidate.phone && <Phone aria-label="Has phone" />}{candidate.url && <ExternalLink aria-label="Has website" />}</div></motion.article>)}</div>}</section>
+      <aside className="engine-inspector" aria-labelledby="engine-coverage-title"><header><h2 id="engine-coverage-title">Contact coverage</h2><p>Share of indexed businesses whose map record lists each public contact.</p></header>{coverage.length ? <div className="coverage-list">{coverage.map((item) => { const percent = Math.round(item.value / (total || 1) * 100); return <div key={item.label}><span><strong>{item.label}</strong><em className="num">{percent}%</em></span><div className="coverage-track" aria-hidden="true"><i style={{ width: `${percent}%` }} /></div><small><span className="num">{item.value.toLocaleString()}</span> {item.value === 1 ? 'record' : 'records'}</small></div> })}</div> : <div className="engine-empty"><Database /><strong>No imported records</strong><small>Run the Great Britain import to populate this index.</small></div>}<div className="pipeline-strip" aria-label="How the index is built"><span><Database /><small>OSM PBF</small></span><ChevronRight /><span><Layers3 /><small>osm2pgsql</small></span><ChevronRight /><span><Server /><small>PostGIS</small></span></div><a className="osm-attribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a></aside>
     </section>
   </section>
 }
@@ -1014,10 +1219,17 @@ function LocalDataSettings() {
     <header><div><span className="settings-icon"><Database /></span><div><h2>Local discovery index</h2><p>Private search data used by Local and Both modes in every run.</p></div></div><span className={`connection-state ${data?.ready ? 'is-online' : ''}`}><i />{data?.ready ? 'Online' : 'Unavailable'}</span></header>
     <div className="settings-body local-index-body">
       {status.error && <ErrorPanel error={status.error} />}{update.error && <ErrorPanel error={update.error} />}
-      <div className="local-index-status"><div><span className="local-index-pulse"><Database /></span><span><strong>{data?.ready ? 'Local index ready' : data?.database === 'online' ? 'Dataset required' : 'Local index offline'}</strong><small>{data?.message ?? 'Checking the local discovery service...'}</small></span></div><div className="local-index-actions"><button className="button ghost" type="button" onClick={() => status.refetch()} disabled={status.isFetching}><RefreshCw className={status.isFetching ? 'spin' : ''} />Refresh</button><button className="button primary" type="button" onClick={() => update.mutate()} disabled={!data?.ready || update.isPending || data?.update_status === 'running'}><RefreshCw className={update.isPending || data?.update_status === 'running' ? 'spin' : ''} />{data?.update_status === 'running' ? 'Syncing' : 'Sync data'}</button></div></div>
-      <div className="local-index-metrics"><Metric label="Businesses" value={data?.businesses ?? 0} accent /><Metric label="Websites" value={data?.with_website ?? 0} /><Metric label="Phones" value={data?.with_phone ?? 0} /><Metric label="Emails" value={data?.with_email ?? 0} /></div>
-      <div className="local-index-meta"><span><small>Dataset</small><strong>{data?.dataset ?? 'OpenStreetMap'}</strong></span><span><small>Last sync</small><strong>{lastSyncLabel(data)}</strong></span><span><small>Data as of</small><strong>{data?.data_timestamp ? formatDate(data.data_timestamp) : 'Unknown'}</strong></span><span><small>Schedule</small><strong>{data?.update_schedule ?? 'Automatic updates'}</strong></span></div>
-      <form className="local-index-query" onSubmit={(event) => { event.preventDefault(); preview.mutate() }}><div><span><ScanSearch /></span><span><strong>Test local search</strong><small>Check what the private index returns before starting a run.</small></span></div><label>Business niche<input value={niche} onChange={(event) => setNiche(event.target.value)} /></label><label>Location<input value={location} onChange={(event) => setLocation(event.target.value)} /></label><button className="button ghost" disabled={!data?.ready || preview.isPending}><Search />{preview.isPending ? 'Searching...' : 'Test query'}</button></form>
+      <div className={`local-index-status local-index-${!data ? 'checking' : data.ready ? 'online' : data.database === 'online' ? 'awaiting' : 'offline'}`}><div><span className="local-index-icon"><Database /></span><span><strong>{data?.ready ? 'Local index ready' : data?.database === 'online' ? 'Dataset required' : 'Local index offline'}</strong><small>{data?.message ?? 'Checking the local discovery service...'}</small></span></div><div className="local-index-actions"><button className="button ghost" type="button" onClick={() => status.refetch()} disabled={status.isFetching}><RefreshCw className={status.isFetching ? 'spin' : ''} />Refresh</button><button className="button primary" type="button" onClick={() => update.mutate()} disabled={!data?.ready || update.isPending || data?.update_status === 'running'}><RefreshCw className={update.isPending || data?.update_status === 'running' ? 'spin' : ''} />{data?.update_status === 'running' ? 'Syncing' : 'Sync data'}</button></div></div>
+      <p className="local-index-note">The index uses about 25–40 GB of disk and syncs once a day while Leadroom is open. Sync data fetches only the map changes since the date below.</p>
+      <dl className="local-index-facts">
+        <div><dt>Businesses</dt><dd className="num">{(data?.businesses ?? 0).toLocaleString()}</dd></div>
+        <div><dt>Data current to</dt><dd className={data?.data_timestamp ? 'num' : ''}>{data?.data_timestamp ? formatDate(isoTimestamp(data.data_timestamp)) : 'Unknown'}</dd></div>
+        {([['Websites', data?.with_website], ['Phones', data?.with_phone], ['Emails', data?.with_email]] as const).map(([label, value]) => <div key={label}><dt>{label}</dt><dd className="num">{(value ?? 0).toLocaleString()}{data?.businesses ? <small>{Math.round((value ?? 0) / data.businesses * 100)}%</small> : null}</dd></div>)}
+        <div><dt>Last sync</dt><dd className={data?.last_updated_at || data?.last_imported_at ? 'num' : ''}>{lastSyncLabel(data)}</dd></div>
+        <div><dt>Dataset</dt><dd>{data?.dataset ?? 'OpenStreetMap'}</dd></div>
+        <div><dt>Schedule</dt><dd>{data?.update_schedule ?? 'Automatic updates'}</dd></div>
+      </dl>
+      <form className="local-index-query" onSubmit={(event) => { event.preventDefault(); preview.mutate() }}><div><span className="local-index-query-icon"><ScanSearch /></span><span><strong>Test local search</strong><small>Check what the private index returns before starting a run. Runs on this computer only.</small></span></div><label>Business niche<input value={niche} onChange={(event) => setNiche(event.target.value)} /></label><label>Location<input value={location} onChange={(event) => setLocation(event.target.value)} /></label><button className="button ghost" disabled={!data?.ready || preview.isPending}><Search />{preview.isPending ? 'Searching...' : 'Test query'}</button></form>
       {preview.error && <ErrorPanel error={preview.error} />}{preview.data && <div className="local-preview"><span><strong>{preview.data.count} matches</strong><small>{preview.data.elapsed_ms} ms</small></span><div>{preview.data.results.slice(0, 5).map((candidate) => <span key={candidate.domain}><strong>{candidate.title}</strong><small>{candidate.city_or_area || candidate.domain}</small></span>)}</div></div>}
     </div>
   </section>
@@ -1118,41 +1330,52 @@ function OllamaModelManager({ modelName, enabled, onSelect }: { modelName: strin
         <footer><span><HardDrive />Installed</span><span><Download />Downloadable</span><span><Cloud />Cloud only</span></footer>
       </div>}
     </div>
-    <details className="manual-model-download"><summary>Install an exact model tag</summary><form className="model-download" onSubmit={(event) => { event.preventDefault(); pull.mutate(modelTag.trim()) }}><label>Model tag<input required value={modelTag} onChange={(event) => setModelTag(event.target.value)} placeholder="e.g. qwen3.5:4b" /></label><button className="button ghost" disabled={!modelTag.trim() || pull.isPending || pullStatus.data?.status === 'downloading'}><Download />{pull.isPending ? 'Starting...' : 'Download'}</button></form></details>
+    <details className="manual-model-download"><summary><ChevronRight />Install an exact model tag</summary><p className="model-download-hint">Downloads from the Ollama library to this computer. Small models take about 2–5 GB of disk; larger ones 10 GB or more.</p><form className="model-download" onSubmit={(event) => { event.preventDefault(); pull.mutate(modelTag.trim()) }}><label>Model tag<input required value={modelTag} onChange={(event) => setModelTag(event.target.value)} placeholder="e.g. qwen3.5:4b" /></label><button className="button ghost" disabled={!modelTag.trim() || pull.isPending || pullStatus.data?.status === 'downloading'}><Download />{pull.isPending ? 'Starting...' : 'Download'}</button></form></details>
     {(pull.error || pullStatus.error) && <ErrorPanel error={(pull.error || pullStatus.error) as Error} />}
     {pullStatus.data && <div className={`download-progress download-${pullStatus.data.status}`}><div><span><strong>{pullStatus.data.model}</strong><small>{pullStatus.data.error || pullStatus.data.message}</small></span><span className="download-status-actions"><em>{pullStatus.data.status === 'completed' ? 'Installed' : pullStatus.data.status === 'failed' ? 'Failed' : pullStatus.data.status === 'cancelled' ? 'Cancelled' : `${pullStatus.data.percent}%`}</em>{['queued', 'downloading'].includes(pullStatus.data.status) && <button type="button" className="icon-button" aria-label="Cancel model download" title="Cancel model download" disabled={cancelPull.isPending} onClick={() => cancelPull.mutate()}><CircleStop /></button>}</span></div><div className="download-track" role="progressbar" aria-label={`Downloading ${pullStatus.data.model}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pullStatus.data.percent}><span style={{ width: `${pullStatus.data.percent}%` }} /></div>{pullStatus.data.total > 0 && <small>{formatModelSize(pullStatus.data.completed)} of {formatModelSize(pullStatus.data.total)}</small>}</div>}
-    <div className="model-benchmark"><div><span className="model-manager-icon"><Gauge /></span><span><strong>Lead extraction fit test</strong><small>Checks structured output, contact accuracy, services, location, and speed.</small></span></div><button type="button" className="button ghost" disabled={!isInstalled || benchmark.isPending} onClick={() => benchmark.mutate()}><Gauge />{benchmark.isPending ? 'Testing model...' : 'Test selected model'}</button></div>
+    <div className="model-benchmark"><div><span className="model-manager-icon"><Gauge /></span><span><strong>Lead extraction fit test</strong><small>Checks structured output, contact accuracy, services, location, and speed. Runs on this computer, usually in under a minute.</small></span></div><button type="button" className="button ghost" disabled={!isInstalled || benchmark.isPending} onClick={() => benchmark.mutate()}><Gauge />{benchmark.isPending ? 'Testing model...' : 'Test selected model'}</button></div>
     {!isInstalled && installed.length > 0 && <p className="benchmark-hint">Select an installed model or download <strong>{modelName}</strong> before testing.</p>}
     {benchmark.error && <ErrorPanel error={benchmark.error} />}
-    {benchmark.data && <div className={`benchmark-result verdict-${benchmark.data.verdict}`}><div className="benchmark-score"><strong>{benchmark.data.score}</strong><span>/10<small>{benchmark.data.verdict.replace('_', ' ')}</small></span></div><div className="benchmark-checks">{benchmark.data.checks.map((check) => <span className={check.passed ? 'passed' : ''} key={check.label}>{check.passed ? <Check /> : <X />}<strong>{check.label}</strong><small>{check.points} pts</small></span>)}</div><footer><span>{benchmark.data.duration_seconds}s total</span><span>{benchmark.data.tokens_per_second ? `${benchmark.data.tokens_per_second} tokens/sec` : 'Speed unavailable'}</span></footer></div>}
+    {benchmark.data && <div className={`benchmark-result verdict-${benchmark.data.verdict}`}><div className="benchmark-score"><span className="benchmark-figure"><ScoreRamp score={benchmark.data.score} /><span aria-hidden="true">/10</span></span><span className="benchmark-verdict">{benchmark.data.verdict.replace('_', ' ')}</span><span className="benchmark-speed"><span className="num">{benchmark.data.duration_seconds}s total</span><span className="num">{benchmark.data.tokens_per_second ? `${benchmark.data.tokens_per_second} tokens/sec` : 'Speed unavailable'}</span></span></div><ul className="benchmark-checks" aria-label="Fit test checks">{benchmark.data.checks.map((check) => <li className={check.passed ? 'passed' : ''} key={check.label}>{check.passed ? <Check aria-label="Passed" /> : <X aria-label="Missed" />}<strong>{check.label}</strong><small className="num">{check.points} pts</small></li>)}</ul></div>}
   </section>
 }
 
-const themeOptions: Array<{ id: ThemeId; name: string; color: string }> = [
-  { id: 'brushstroke', name: 'Brushstroke', color: '#b45309' },
-  { id: 'genesis', name: 'Genesis', color: '#6366f1' },
-  { id: 'flip7', name: 'Flip7', color: '#2ba8a2' },
-  { id: 'rawblock', name: 'RawBlock', color: '#000000' },
-  { id: 'evreghen', name: 'Evreghen', color: '#fe6e00' },
-  { id: 'ember', name: 'Ember Studio', color: '#c2410c' },
-  { id: 'insightdeck', name: 'InsightDeck', color: '#9333ea' },
-  { id: 'vercel', name: 'Vercel Interface', color: '#171717' },
-  { id: 'trustblue', name: 'Trust Blue Pay', color: '#003087' },
-  { id: 'zengrid', name: 'ZenGrid', color: '#78716c' },
+const appearanceOptions: Array<{ id: Appearance; label: string; icon: typeof SunIcon }> = [
+  { id: 'system', label: 'System', icon: MonitorIcon },
+  { id: 'light', label: 'Light', icon: SunIcon },
+  { id: 'dark', label: 'Dark', icon: MoonIcon },
 ]
 
+// The palette is a workspace setting (saved by the API); light or dark belongs to this computer.
 function ThemeSelector({ selected, onSelect }: { selected: ThemeId; onSelect: (theme: ThemeId) => void }) {
+  const [appearance, setAppearance] = useState<Appearance>(currentAppearance)
   const selectWithKeyboard = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
     const keys = ['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End']
     if (!keys.includes(event.key)) return
     event.preventDefault()
-    const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? themeOptions.length - 1 : (index + (['ArrowRight', 'ArrowDown'].includes(event.key) ? 1 : -1) + themeOptions.length) % themeOptions.length
-    onSelect(themeOptions[nextIndex].id)
+    const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? THEMES.length - 1 : (index + (['ArrowRight', 'ArrowDown'].includes(event.key) ? 1 : -1) + THEMES.length) % THEMES.length
+    onSelect(THEMES[nextIndex].id)
     const buttons = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="radio"]')
     buttons?.[nextIndex]?.focus()
   }
-  return <section className="settings-section theme-settings theme-settings-compact"><header><div><span className="settings-icon"><Palette /></span><div><h2>Appearance</h2><p>Select a workspace theme.</p></div></div><span className="connection-state is-online"><i />Lightweight</span></header><div className="settings-body theme-dots" role="radiogroup" aria-label="Workspace theme">
-    {themeOptions.map((theme, index) => <button type="button" role="radio" aria-label={theme.name} aria-checked={selected === theme.id} tabIndex={selected === theme.id ? 0 : -1} title={theme.name} className={`theme-dot ${selected === theme.id ? 'selected' : ''}`} style={{ '--theme-color': theme.color } as CSSProperties} onKeyDown={(event) => selectWithKeyboard(event, index)} onClick={() => onSelect(theme.id)} key={theme.id}>{selected === theme.id && <Check />}<span className="sr-only">{theme.name}</span></button>)}
+  const chooseAppearance = (next: Appearance) => { setAppearance(next); applyAppearance(next) }
+  return <section className="settings-section theme-settings" id="settings-appearance"><header><div><span className="settings-icon"><Palette /></span><div><h2>Appearance</h2><p>Colours change at once; nothing else in the workspace moves.</p></div></div></header><div className="settings-body theme-body">
+    <div className="theme-block">
+      <div className="theme-block-copy"><span className="label-caps" id="theme-palette-label">Palette</span><small>Rail and evidence colours. Shared by everyone in this workspace.</small></div>
+      <div className="theme-palettes" role="radiogroup" aria-labelledby="theme-palette-label">
+        {THEMES.map((theme, index) => <button type="button" role="radio" aria-label={theme.label} aria-checked={selected === theme.id} tabIndex={selected === theme.id ? 0 : -1} className={`theme-palette ${selected === theme.id ? 'selected' : ''}`} onKeyDown={(event) => selectWithKeyboard(event, index)} onClick={() => onSelect(theme.id)} key={theme.id}>
+          <span className="theme-swatch" aria-hidden="true" style={{ '--swatch-cloth': theme.cloth, '--swatch-paper': theme.paper } as CSSProperties}><span className="theme-swatch-rail"><i /><i /><i /></span><span className="theme-swatch-paper"><i /><i /><i /></span></span>
+          <span className="theme-palette-name"><strong>{theme.label}</strong>{theme.id === DEFAULT_THEME && <small>Default</small>}</span>
+          <span className="theme-palette-check" aria-hidden="true">{selected === theme.id && <Check />}</span>
+        </button>)}
+      </div>
+    </div>
+    <div className="theme-block theme-appearance">
+      <div className="theme-block-copy"><span className="label-caps" id="theme-appearance-label">Light or dark</span><small>Only this computer. System follows the Windows setting.</small></div>
+      <div className="segmented" role="group" aria-labelledby="theme-appearance-label">
+        {appearanceOptions.map(({ id, label, icon: Icon }) => <button type="button" aria-pressed={appearance === id} onClick={() => chooseAppearance(id)} key={id}><Icon />{label}</button>)}
+      </div>
+    </div>
   </div></section>
 }
 
@@ -1186,13 +1409,13 @@ function EmailAccountsSettings() {
   const makeDefault = useMutation({ mutationFn: api.setDefaultEmailAccount, onSuccess: (data) => sync(data, selectedId) })
   const test = useMutation({ mutationFn: api.testEmailAccount })
   const busy = save.isPending || remove.isPending || makeDefault.isPending
-  return <section className="settings-section email-settings email-accounts-settings"><header><div><span className="settings-icon"><Mail /></span><div><h2>Email accounts</h2><p>Choose which company mailbox sends each approved campaign.</p></div></div><span className={`connection-state ${accounts.data?.accounts.length ? 'is-online' : ''}`}><i />{accounts.data?.accounts.length ?? 0} connected</span></header><div className="settings-body email-account-workspace">
+  return <section className="settings-section email-settings email-accounts-settings" id="settings-email"><header><div><span className="settings-icon"><Mail /></span><div><h2>Email accounts</h2><p>Choose which company mailbox sends each approved campaign.</p></div></div><span className={`connection-state ${accounts.data?.accounts.length ? 'is-online' : ''}`}><i />{accounts.data?.accounts.length ?? 0} connected</span></header><div className="settings-body email-account-workspace">
     <aside className="email-account-list"><div className="email-account-list-head"><span><strong>Senders</strong><small>SMTP accounts available to Outreach</small></span><button type="button" className="icon-button" onClick={() => { setSelectedId(''); setForm(emptyEmailAccount); test.reset() }} aria-label="Add email account" title="Add email account"><Plus /></button></div>
       {accounts.isLoading && <LoadingRows />}
       {accounts.data?.accounts.map((account) => <button type="button" className={`email-account-card ${selectedId === account.id ? 'selected' : ''}`} aria-pressed={selectedId === account.id} onClick={() => { loadAccount(account); test.reset() }} key={account.id}><span className="email-account-avatar">{(account.from_name || account.label || account.from_email).slice(0, 1).toUpperCase()}</span><span><strong>{account.label}</strong><small>{account.from_email}</small></span>{account.is_default ? <em><Check />Default</em> : <ChevronRight />}</button>)}
       {!accounts.isLoading && !accounts.data?.accounts.length && <div className="email-account-empty"><Mail /><strong>No sender accounts</strong><small>Add the SMTP details supplied by your email company.</small></div>}
     </aside>
-    <form className="email-account-editor" onSubmit={(event) => { event.preventDefault(); save.mutate() }}><div className="email-account-editor-head"><span><small>{selected ? 'Editing sender' : 'New sender'}</small><h3>{selected?.label || 'Connect a company mailbox'}</h3></span>{selected?.is_default && <em><Check />Default sender</em>}</div>
+    <form className="email-account-editor" onSubmit={(event) => { event.preventDefault(); save.mutate() }}><div className="email-account-editor-head"><span><h3>{selected?.label || 'Connect a company mailbox'}</h3><small>{selected ? 'Editing this sender' : 'New sender: use the SMTP details from your email provider.'}</small></span>{selected?.is_default && <em><Check />Default sender</em>}</div>
       <div className="email-account-identity"><label>Account label<input required value={form.label} onChange={(event) => setForm({ ...form, label: event.target.value })} placeholder="e.g. Northstar Sales" /></label><label>From email<input required type="email" value={form.from_email} onChange={(event) => setForm({ ...form, from_email: event.target.value })} placeholder="sales@company.com" /></label><label>Sender name<input value={form.from_name} onChange={(event) => setForm({ ...form, from_name: event.target.value })} placeholder="Company or team name" /></label><label>Reply-to<input type="email" value={form.reply_to} onChange={(event) => setForm({ ...form, reply_to: event.target.value })} placeholder="replies@company.com" /></label></div>
       <div className="email-account-server"><label className="email-host-field">SMTP host<input required value={form.host} onChange={(event) => setForm({ ...form, host: event.target.value })} placeholder="smtp.company.com" /></label><label>Port<input required type="number" min="1" max="65535" value={form.port} onChange={(event) => setForm({ ...form, port: Number(event.target.value) || 587 })} /></label><label>Security<select value={form.security} onChange={(event) => setForm({ ...form, security: event.target.value as EmailAccountInput['security'] })}><option value="starttls">STARTTLS</option><option value="ssl">SSL/TLS</option><option value="none">None</option></select></label><label>Username<input value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} autoComplete="username" placeholder="Usually your email address" /></label><label>Password or app password<input type="password" value={form.password ?? ''} onChange={(event) => setForm({ ...form, password: event.target.value, clear_password: false })} autoComplete="new-password" placeholder={selected?.password_configured ? 'Stored securely - enter to replace' : 'Enter account password'} /></label></div>
       <div className="email-account-note"><LockKeyhole /><span><strong>Stored on this Windows account</strong><small>Credentials are encrypted locally. Outlook New can keep receiving the same mailbox independently.</small></span></div>
@@ -1232,8 +1455,8 @@ function StorageSettingsPanel() {
     mutationFn: ({ field, path }: { field: 'data_root' | 'downloads_root'; path: string }) => api.browseStorageFolder(path).then((result) => ({ field, path: result.path })),
     onSuccess: ({ field, path }) => { if (path && form) setOverride({ ...form, [field]: path }) },
   })
-  if (storage.isLoading || !form) return <section className="settings-section storage-settings"><header><div><span className="settings-icon"><HardDrive /></span><div><h2>Storage</h2><p>Workspace data and large local downloads.</p></div></div></header><LoadingRows /></section>
-  return <section className="settings-section storage-settings"><header><div><span className="settings-icon"><HardDrive /></span><div><h2>Storage</h2><p>Choose where Leadroom keeps workspace data and large downloads.</p></div></div>{storage.data?.restart_required ? <span className="connection-state storage-restart"><i />Restart pending</span> : <span className="connection-state is-online"><i />Active</span>}</header><div className="settings-body storage-body">
+  if (storage.isLoading || !form) return <section className="settings-section storage-settings" id="settings-storage"><header><div><span className="settings-icon"><HardDrive /></span><div><h2>Storage</h2><p>Workspace data and large local downloads.</p></div></div></header><LoadingRows /></section>
+  return <section className="settings-section storage-settings" id="settings-storage"><header><div><span className="settings-icon"><HardDrive /></span><div><h2>Storage</h2><p>Choose where Leadroom keeps workspace data and large downloads.</p></div></div>{storage.data?.restart_required ? <span className="connection-state storage-restart"><i />Restart pending</span> : <span className="connection-state is-online"><i />Active</span>}</header><div className="settings-body storage-body">
     <div className="storage-location"><div className="storage-location-title"><span className="storage-location-icon"><Database /></span><span><strong>Workspace data</strong><small>SQLite database and exported lead files</small></span><em>{formatModelSize(storage.data?.workspace_bytes ?? 0)}</em></div><label>Folder<div className="storage-path-control"><input value={form.data_root} onChange={(event) => setOverride({ ...form, data_root: event.target.value })} spellCheck={false} /><button type="button" className="button ghost" disabled={browse.isPending} onClick={() => browse.mutate({ field: 'data_root', path: form.data_root })}><FolderInput />Browse</button></div></label><div className="storage-path-meta"><span><strong>{formatModelSize(storage.data?.data_disk.free_bytes ?? 0)} free</strong><small>{storage.data?.database_exists ? `Database found · ${formatModelSize(storage.data.database_bytes)}` : 'No database in selected folder yet'}</small></span><code title={storage.data?.database_path}>{storage.data?.database_path}</code></div>
       <fieldset className="storage-mode"><legend>When the app restarts</legend><label className={form.data_action === 'move' ? 'selected' : ''}><input type="radio" name="storage-action" checked={form.data_action === 'move'} onChange={() => setOverride({ ...form, data_action: 'move' })} /><FolderInput /><span><strong>Move current workspace</strong><small>Safely copy and verify the current database</small></span><Check /></label><label className={form.data_action === 'use' ? 'selected' : ''}><input type="radio" name="storage-action" checked={form.data_action === 'use'} onChange={() => setOverride({ ...form, data_action: 'use' })} /><Database /><span><strong>Use selected folder</strong><small>Open its existing database or create a new one</small></span><Check /></label></fieldset>
     </div>
@@ -1242,6 +1465,53 @@ function StorageSettingsPanel() {
     {save.isSuccess && <div className="storage-saved" role="status"><RefreshCw /><span><strong>Storage locations saved</strong><small>Close and reopen Leadroom to apply the change. Restart Ollama before downloading another model.</small></span></div>}
     <footer className="storage-actions"><span><LockKeyhole />A tiny locator file remains in Windows AppData so Leadroom can find these folders.</span><button type="button" className="button primary" disabled={save.isPending || !form.data_root.trim() || !form.downloads_root.trim()} onClick={() => save.mutate(form)}><Save />{save.isPending ? 'Checking folders...' : 'Save storage locations'}</button></footer>
   </div></section>
+}
+
+const settingsSections = [
+  { id: 'settings-workspace', label: 'Brand identity' },
+  { id: 'settings-appearance', label: 'Appearance' },
+  { id: 'settings-storage', label: 'Storage' },
+  { id: 'settings-model', label: 'Model runtime' },
+  { id: 'settings-email', label: 'Email accounts' },
+  { id: 'local-data', label: 'Local index' },
+  { id: 'settings-filters', label: 'Discovery filters' },
+  { id: 'settings-about', label: 'About' },
+]
+
+// Contents of the settings page: jumps to a section and marks the one being read.
+function SettingsIndex() {
+  const reduceMotion = useReducedMotion()
+  const [active, setActive] = useState(settingsSections[0].id)
+  useEffect(() => {
+    let frame = 0
+    const track = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        let current = settingsSections[0].id
+        for (const section of settingsSections) {
+          const element = document.getElementById(section.id)
+          if (element && element.getBoundingClientRect().top <= 140) current = section.id
+        }
+        if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4) current = settingsSections.at(-1)!.id
+        setActive(current)
+      })
+    }
+    track()
+    window.addEventListener('scroll', track, { passive: true })
+    window.addEventListener('resize', track)
+    return () => { cancelAnimationFrame(frame); window.removeEventListener('scroll', track); window.removeEventListener('resize', track) }
+  }, [])
+  const jump = (event: React.MouseEvent<HTMLAnchorElement>, id: string) => {
+    const element = document.getElementById(id)
+    if (!element) return
+    event.preventDefault()
+    element.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' })
+    element.setAttribute('tabindex', '-1')
+    element.focus({ preventScroll: true })
+  }
+  return <nav className="settings-index" aria-label="Settings sections"><ol>
+    {settingsSections.map((section) => <li key={section.id}><a href={`#${section.id}`} aria-current={active === section.id ? 'location' : undefined} onClick={(event) => jump(event, section.id)}>{section.label}</a></li>)}
+  </ol></nav>
 }
 
 function SettingsPage() {
@@ -1257,7 +1527,7 @@ function SettingsPage() {
     model_provider: settings.data.model_provider, model_name: settings.data.model_name,
     model_endpoint: settings.data.model_endpoint, clear_api_key: false, blocked_domains: settings.data.blocked_domains,
     workspace_name: settings.data.workspace_name, workspace_subtitle: settings.data.workspace_subtitle, logo_data_url: settings.data.logo_data_url,
-    theme: isThemeId(settings.data.theme) ? settings.data.theme : 'brushstroke',
+    theme: isThemeId(settings.data.theme) ? settings.data.theme : DEFAULT_THEME,
     smtp_host: settings.data.smtp_host ?? '', smtp_port: settings.data.smtp_port ?? 587,
     smtp_security: settings.data.smtp_security ?? 'starttls', smtp_username: settings.data.smtp_username ?? '',
     clear_smtp_password: false, smtp_from_email: settings.data.smtp_from_email ?? '',
@@ -1267,7 +1537,7 @@ function SettingsPage() {
     mutationFn: (payload: WorkspaceSettingsUpdate) => api.updateSettings(withWorkspaceFallback(payload)),
     onSuccess: (data) => {
       queryClient.setQueryData(['settings'], data)
-      const theme = isThemeId(data.theme) ? data.theme : 'brushstroke'
+      const theme = isThemeId(data.theme) ? data.theme : DEFAULT_THEME
       applyTheme(theme)
       setForm({ model_provider: data.model_provider, model_name: data.model_name, model_endpoint: data.model_endpoint, clear_api_key: false, blocked_domains: data.blocked_domains, workspace_name: data.workspace_name, workspace_subtitle: data.workspace_subtitle, logo_data_url: data.logo_data_url, theme, smtp_host: data.smtp_host ?? '', smtp_port: data.smtp_port ?? 587, smtp_security: data.smtp_security ?? 'starttls', smtp_username: data.smtp_username ?? '', clear_smtp_password: false, smtp_from_email: data.smtp_from_email ?? '', smtp_from_name: data.smtp_from_name ?? '', smtp_reply_to: data.smtp_reply_to ?? '' })
       setSavedNotice((value) => value + 1)
@@ -1324,10 +1594,10 @@ function SettingsPage() {
     const timer = window.setTimeout(() => setSavedNotice(0), 3200)
     return () => window.clearTimeout(timer)
   }, [savedNotice])
-  if (settings.error) return <section className="narrow"><PageHeader eyebrow="System" title="Settings" subtitle="Workspace identity, model runtime, and discovery rules" /><ErrorPanel error={settings.error} /><button className="button ghost" onClick={() => settings.refetch()}><Activity />Retry</button></section>
-  if (settings.isLoading || !form) return <section className="narrow"><PageHeader eyebrow="System" title="Settings" subtitle="Workspace identity, model runtime, and discovery rules" /><LoadingRows /></section>
+  if (settings.error) return <section className="narrow"><PageHeader title="Settings" subtitle="Workspace identity, model runtime, and discovery rules" /><ErrorPanel error={settings.error} /><button className="button ghost" onClick={() => settings.refetch()}><Activity />Retry</button></section>
+  if (settings.isLoading || !form) return <section className="narrow"><PageHeader title="Settings" subtitle="Workspace identity, model runtime, and discovery rules" /><LoadingRows /></section>
   const apiConfigured = settings.data?.api_key_configured && !form.clear_api_key
-  return <section className="settings-page narrow"><PageHeader eyebrow="System" title="Settings" subtitle="Workspace identity, model runtime, and discovery rules" action={<button className="button primary" disabled={saved.isPending} onClick={() => saved.mutate(form)}><Save />{saved.isPending ? 'Saving...' : 'Save changes'}</button>} />
+  return <section className="settings-page narrow"><PageHeader title="Settings" subtitle="Workspace identity, model runtime, and discovery rules" action={<button className="button primary" disabled={saved.isPending} onClick={() => saved.mutate(form)}><Save />{saved.isPending ? 'Saving...' : 'Save changes'}</button>} />
     {(saved.error || themeSaved.error || modelSaved.error) && <ErrorPanel error={(saved.error || themeSaved.error || modelSaved.error) as Error} />}{testConnection.error && <ErrorPanel error={testConnection.error} />}{localError && <div className="inline-field-error" role="alert"><AlertTriangle />{localError}</div>}
     <AnimatePresence>{savedNotice > 0 && <motion.div
       className="settings-success"
@@ -1340,33 +1610,35 @@ function SettingsPage() {
       transition={reduceMotion ? { duration: 0.01 } : { duration: 0.24, ease: 'easeOut' }}
     ><Check />Settings saved</motion.div>}</AnimatePresence>
     <div className="settings-layout">
-      <section className="settings-section branding-settings"><header><div><span className="settings-icon"><ImagePlus /></span><div><h2>Brand identity</h2><p>Shown in the workspace navigation.</p></div></div></header><div className="settings-body branding-grid">
+      <SettingsIndex />
+      <div className="settings-sections">
+      <section className="settings-section branding-settings" id="settings-workspace"><header><div><span className="settings-icon"><ImagePlus /></span><div><h2>Brand identity</h2><p>Shown in the workspace navigation.</p></div></div></header><div className="settings-body branding-grid">
         <div className="brand-preview"><BrandMark logo={form.logo_data_url} name={form.workspace_name || 'Leadroom'} /><span><strong>{form.workspace_name.trim() || 'Leadroom'}</strong><small>{form.workspace_subtitle.trim() || 'Signal desk'}</small></span></div>
-        <div className="logo-actions"><label className="button ghost"><Upload />Choose logo<input className="sr-only" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => readLogo(event.target.files?.[0])} /></label>{form.logo_data_url && <button className="icon-button destructive" onClick={() => setForm({ ...form, logo_data_url: '' })} aria-label="Remove logo" title="Remove logo"><Trash2 /></button>}</div>
+        <div className="logo-actions"><label className="button ghost"><Upload />Choose logo<input className="sr-only" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => readLogo(event.target.files?.[0])} /></label>{form.logo_data_url && <button className="icon-button destructive" onClick={() => setForm({ ...form, logo_data_url: '' })} aria-label="Remove logo" title="Remove logo"><Trash2 /></button>}<small>PNG, JPEG or WebP, under 500 KB</small></div>
         <label>Workspace name<input value={form.workspace_name} maxLength={40} onChange={(event) => setForm({ ...form, workspace_name: event.target.value })} /></label>
         <label>Subtitle<input value={form.workspace_subtitle} maxLength={60} onChange={(event) => setForm({ ...form, workspace_subtitle: event.target.value })} /></label>
       </div></section>
       <ThemeSelector selected={form.theme} onSelect={(theme) => { const previous = form.theme; const version = Math.max(Date.now(), themeVersion.current + 1); themeVersion.current = version; applyTheme(theme); setForm({ ...form, theme }); themeSaved.mutate({ theme, version, previous }) }} />
       <StorageSettingsPanel />
-      <section className="settings-section model-settings"><header><div><span className="settings-icon"><Bot /></span><div><h2>Model runtime</h2><p>Default connection for new enrichment runs.</p></div></div><span className={`connection-state ${testConnection.isSuccess ? 'is-online' : ''}`}><i />{testConnection.isSuccess ? 'Connected' : form.model_provider === 'ollama' ? 'Local' : 'API'}</span></header><div className="settings-body">
-        <fieldset className="provider-switch"><legend>Provider</legend><label className={form.model_provider === 'ollama' ? 'selected' : ''}><input type="radio" checked={form.model_provider === 'ollama'} onChange={() => setForm({ ...form, model_provider: 'ollama', model_name: 'llama3.2:3b', model_endpoint: 'http://localhost:11434' })} /><Cpu /><span><strong>Ollama</strong><small>Local model</small></span><Check /></label><label className={form.model_provider === 'openai_compatible' ? 'selected' : ''}><input type="radio" checked={form.model_provider === 'openai_compatible'} onChange={() => setForm({ ...form, model_provider: 'openai_compatible', model_name: 'gpt-4o-mini', model_endpoint: 'https://api.openai.com/v1' })} /><Server /><span><strong>API</strong><small>OpenAI-compatible</small></span><Check /></label></fieldset>
+      <section className="settings-section model-settings" id="settings-model"><header><div><span className="settings-icon"><Bot /></span><div><h2>Model runtime</h2><p>Default connection for new enrichment runs.</p></div></div><span className={`connection-state ${testConnection.isSuccess ? 'is-online' : ''}`}><i />{testConnection.isSuccess ? 'Connected' : form.model_provider === 'ollama' ? 'Local' : 'API'}</span></header><div className="settings-body">
+        <fieldset className="provider-switch"><legend>Provider</legend><label className={form.model_provider === 'ollama' ? 'selected' : ''}><input type="radio" checked={form.model_provider === 'ollama'} onChange={() => setForm({ ...form, model_provider: 'ollama', model_name: 'llama3.2:3b', model_endpoint: 'http://localhost:11434' })} /><Cpu /><span><strong>Ollama</strong><small>Free, runs on this computer</small></span><Check /></label><label className={form.model_provider === 'openai_compatible' ? 'selected' : ''}><input type="radio" checked={form.model_provider === 'openai_compatible'} onChange={() => setForm({ ...form, model_provider: 'openai_compatible', model_name: 'gpt-4o-mini', model_endpoint: 'https://api.openai.com/v1' })} /><Server /><span><strong>API</strong><small>Paid per request, OpenAI-compatible</small></span><Check /></label></fieldset>
         <div className={`model-fields ${form.model_provider === 'ollama' ? 'ollama-fields' : ''}`}>{form.model_provider === 'openai_compatible' && <label>Model name<input value={form.model_name} onChange={(event) => setForm({ ...form, model_name: event.target.value })} placeholder="Model identifier" /></label>}<label className="endpoint-field"><span>Endpoint</span><span className="input-with-icon"><Link2 /><input type="url" value={form.model_endpoint} onChange={(event) => setForm({ ...form, model_endpoint: event.target.value })} /></span></label>{form.model_provider === 'openai_compatible' && <label className="api-key-field"><span>API key {apiConfigured && <em>Configured</em>}</span><span className="input-with-icon"><KeyRound /><input type="password" value={form.api_key ?? ''} onChange={(event) => setForm({ ...form, api_key: event.target.value, clear_api_key: false })} placeholder={apiConfigured ? 'Keep existing key' : 'Enter API key'} /></span></label>}</div>
         <div className="model-actions">{apiConfigured && <button className="button text-danger" onClick={() => setForm({ ...form, api_key: '', clear_api_key: true })}><Trash2 />Remove key</button>}<button className="button ghost" disabled={testConnection.isPending} onClick={() => testConnection.mutate(form)}><Activity />{testConnection.isPending ? 'Testing...' : 'Save & test connection'}</button></div>
         {form.model_provider === 'ollama' && <OllamaModelManager modelName={form.model_name} enabled={settings.data?.model_provider === 'ollama'} onSelect={(model) => { setForm({ ...form, model_name: model }); modelSaved.mutate(model) }} />}
       </div></section>
       <EmailAccountsSettings />
       <LocalDataSettings />
-      <section className="settings-section filter-settings"><header><div><span className="settings-icon"><ShieldCheck /></span><div><h2>Discovery filters</h2><p>Domains excluded before candidate review.</p></div></div><span className="count-badge">{form.blocked_domains.length}</span></header><div className="settings-body">
+      <section className="settings-section filter-settings" id="settings-filters"><header><div><span className="settings-icon"><ShieldCheck /></span><div><h2>Discovery filters</h2><p>Sites on these domains are skipped before candidates are reviewed.</p></div></div><span className="count-badge">{form.blocked_domains.length}</span></header><div className="settings-body">
         <form className="domain-entry" onSubmit={(event) => { event.preventDefault(); addDomain() }}><label><span>Block another domain</span><span className="input-with-icon"><Search /><input value={domainInput} onChange={(event) => setDomainInput(event.target.value)} placeholder="example.com" /></span></label><button className="button ghost" type="submit"><Plus />Add filter</button></form>
-        <div className="domain-tags" aria-label="Blocked domains">{form.blocked_domains.map((domain) => <span className="domain-tag domain-tag-custom" key={domain}><code>{domain}</code><button onClick={() => setForm({ ...form, blocked_domains: form.blocked_domains.filter((item) => item !== domain) })} aria-label={`Remove ${domain}`} title="Remove filter"><X /></button></span>)}</div>
+        {!form.blocked_domains.length && <p className="domain-empty">No domains blocked. Every site found can become a candidate.</p>}<div className="domain-tags" aria-label="Blocked domains">{form.blocked_domains.map((domain) => <span className="domain-tag domain-tag-custom" key={domain}><code>{domain}</code><button onClick={() => setForm({ ...form, blocked_domains: form.blocked_domains.filter((item) => item !== domain) })} aria-label={`Remove ${domain}`} title="Remove filter"><X /></button></span>)}</div>
       </div></section>
       <AboutSection />
+      </div>
     </div>
   </section>
 }
 
-function PageHeader({ eyebrow, title, subtitle, action }: { eyebrow?: string; title: string; subtitle: string; action?: React.ReactNode }) { return <div className="page-header"><div>{eyebrow && <span className="eyebrow">{eyebrow}</span>}<h1>{title}</h1><p>{subtitle}</p></div>{action}</div> }
-function Metric({ label, value, accent = false }: { label: string; value: number; accent?: boolean }) { return <div className={`metric ${accent ? 'metric-accent' : ''}`}><strong>{value}</strong><span>{label}</span></div> }
+function PageHeader({ title, subtitle, action }: { title: string; subtitle: string; action?: React.ReactNode }) { return <div className="page-header"><div><h1>{title}</h1><p>{subtitle}</p></div>{action}</div> }
 function SearchProgress({ mode }: { mode: 'initial' | 'continuation' }) {
   const [elapsed, setElapsed] = useState(0)
   useEffect(() => {
@@ -1385,7 +1657,6 @@ function EmptyState() {
   return <div className="empty-state runs-empty">
     <span className="runs-empty-icon" aria-hidden="true"><Search /></span>
     <div className="runs-empty-copy">
-      <span className="eyebrow">Ready when you are</span>
       <h2>Create your first run</h2>
       <p>Choose a market and location to start building a focused lead list.</p>
     </div>

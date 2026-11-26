@@ -1,0 +1,238 @@
+/* New run: the run builder form and its search blueprint, in the Survey Field Book world. */
+
+.new-run-page { max-width: 1240px; }
+.new-run-layout { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(300px, 0.72fr); gap: var(--space-5); align-items: start; }
+
+/* ---------- The form sheet ---------- */
+.form-surface { container: run-form / inline-size; min-width: 0; padding: 28px; }
+.step-label { display: flex; align-items: center; gap: 10px; margin: 0 0 var(--space-4); font-size: var(--type-lead); font-weight: var(--weight-semibold); color: var(--text); }
+.step-label span {
+  width: 24px; height: 24px; flex: none; display: grid; place-items: center; border: 1px solid var(--rule-strong); border-radius: 50%;
+  color: var(--ev-4); background: var(--sheet-2); font: var(--weight-medium) var(--type-caption)/1 var(--font-mono);
+}
+.step-label:not(:first-child) { margin-top: var(--space-6); padding-top: var(--space-5); border-top: 1px solid var(--hair); }
+.form-surface input[readonly] { background: var(--sheet-2); color: var(--muted); font: var(--weight-regular) var(--type-caption) var(--font-mono); }
+
+/* ---------- Advanced settings ---------- */
+.advanced-settings { margin-top: var(--space-5); border: 1px solid var(--hair); border-radius: var(--radius); background: var(--sheet); overflow: hidden; }
+.advanced-settings summary {
+  min-height: 60px; padding: 10px var(--space-4); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
+  list-style: none; cursor: pointer; transition: background-color var(--dur-fast) ease;
+}
+.advanced-settings summary::-webkit-details-marker { display: none; }
+.advanced-settings summary:hover { background: var(--sheet-2); }
+.advanced-settings summary:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: var(--radius); }
+.advanced-title { min-width: 0; display: flex; align-items: center; gap: var(--space-3); }
+.advanced-title > svg { width: 34px; height: 34px; flex: none; padding: 8px; border-radius: var(--radius); color: var(--ev-4); background: var(--sheet-3); }
+.advanced-title > span { min-width: 0; display: grid; gap: 2px; }
+.advanced-title strong { font-size: var(--type-body); color: var(--text); }
+.advanced-title small { color: var(--muted); font-size: var(--type-caption); }
+.summary-chevron { width: 18px; height: 18px; flex: none; color: var(--muted); transition: transform var(--dur) var(--ease-out); }
+.advanced-settings[open] .summary-chevron { transform: rotate(180deg); }
+.advanced-settings[open] > summary { border-bottom: 1px solid var(--hair); }
+.advanced-body { display: grid; gap: var(--space-5); padding: var(--space-5) var(--space-4); background: var(--sheet-2); }
+.advanced-body > .form-grid { padding-top: var(--space-5); border-top: 1px solid var(--hair); }
+
+/* Fieldsets read as ruled sections of the book: a condensed caps legend, then the choices. */
+.source-picker, .discovery-fieldset, .crawl-picker { min-width: 0; margin: 0; padding: 0; border: 0; }
+.source-picker legend, .discovery-fieldset legend, .crawl-picker legend { margin-bottom: var(--space-2); padding: 0; }
+
+/* Shared pieces of every choice card */
+.source-option input, .discovery-option input, .crawl-option input {
+  position: absolute; width: 1px; height: 1px; min-height: 1px; margin: 0; opacity: 0;
+}
+.source-option > strong small, .discovery-copy strong small, .crawl-option strong small {
+  display: inline-flex; align-items: center; min-height: 18px; padding: 0 6px; border-radius: var(--radius-sm);
+  color: var(--ok); background: var(--ok-soft); font: var(--weight-semibold) var(--type-micro)/1 var(--font-label);
+  text-transform: uppercase; letter-spacing: var(--label-tracking); white-space: nowrap;
+}
+.source-option > i, .radio-mark {
+  width: 20px; height: 20px; flex: none; display: grid; place-items: center; border: 1.5px solid var(--rule-strong); border-radius: 50%;
+  color: transparent; background: var(--sheet); transition: background-color var(--dur-fast) ease, border-color var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+.source-option > i svg, .radio-mark svg { width: 12px; height: 12px; stroke-width: 2.8; }
+.source-option.selected > i, .discovery-option.selected .radio-mark, .crawl-option.selected .radio-mark { border-color: var(--action); background: var(--action); color: var(--on-action); }
+
+/* ---------- Discovery source: three cards ---------- */
+.source-picker > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+.source-option {
+  position: relative; min-width: 0; min-height: 84px; padding: 12px; display: grid; grid-template-columns: 32px minmax(0, 1fr) 20px; grid-template-rows: auto 1fr;
+  align-items: center; column-gap: 10px; row-gap: 6px; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--sheet);
+  font-weight: var(--weight-regular); cursor: pointer; transition: border-color var(--dur-fast) ease, background-color var(--dur-fast) ease;
+}
+.source-option:hover { border-color: var(--rule-strong); }
+.source-option > span { width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--radius); color: var(--ev-4); background: var(--sheet-3); transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease; }
+.source-option > span svg { width: 16px; height: 16px; }
+.source-option > strong { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; font-size: var(--type-body); font-weight: var(--weight-semibold); color: var(--text); }
+.source-option > em { grid-column: 1 / -1; align-self: start; color: var(--muted); font-size: var(--type-caption); font-style: normal; line-height: 1.4; }
+.source-option.selected { border-color: var(--action); background: var(--action-soft); box-shadow: inset 0 0 0 1px var(--action); }
+.source-option.selected > span { color: var(--on-action); background: var(--action); }
+.source-option.disabled { opacity: 0.55; cursor: not-allowed; }
+.source-option.disabled:hover { border-color: var(--rule); }
+.source-option:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* ---------- Previous results: a ruled list ---------- */
+.discovery-options { display: grid; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--sheet); overflow: hidden; }
+.discovery-option {
+  position: relative; min-width: 0; min-height: 60px; padding: 10px 14px; display: grid; grid-template-columns: 32px minmax(0, 1fr) 20px; align-items: center; gap: 12px;
+  font-weight: var(--weight-regular); cursor: pointer; touch-action: manipulation; transition: background-color var(--dur-fast) ease;
+}
+.discovery-option + .discovery-option { border-top: 1px solid var(--hair); }
+.discovery-option:hover { background: var(--sheet-2); }
+.discovery-option.selected { z-index: 1; background: var(--action-soft); box-shadow: inset 0 0 0 1px var(--action); }
+.discovery-option:first-child { border-radius: var(--radius) var(--radius) 0 0; }
+.discovery-option:last-child { border-radius: 0 0 var(--radius) var(--radius); }
+.discovery-option:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: -2px; }
+.discovery-icon { width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--radius); color: var(--ev-4); background: var(--sheet-3); transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease; }
+.discovery-icon svg { width: 16px; height: 16px; }
+.discovery-option.selected .discovery-icon { color: var(--on-action); background: var(--action); }
+.discovery-copy { min-width: 0; display: grid; gap: 2px; }
+.discovery-copy strong { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; font-size: var(--type-body); font-weight: var(--weight-semibold); color: var(--text); }
+.discovery-copy > span { color: var(--muted); font-size: var(--type-caption); line-height: 1.4; }
+
+/* ---------- Market history note ---------- */
+.market-history {
+  min-height: 52px; padding: 10px 14px; display: flex; align-items: center; gap: 12px;
+  border: 1px dashed var(--rule); border-radius: var(--radius); background: var(--sheet); color: var(--muted); font-size: var(--type-caption);
+  animation: reveal var(--dur) ease-out;
+}
+.market-history > svg { width: 17px; height: 17px; flex: none; color: var(--ev-3); }
+.market-history > span { min-width: 0; display: grid; gap: 1px; color: var(--text-2); }
+.market-history strong { color: var(--text); font-size: var(--type-body); font-weight: var(--weight-semibold); }
+.market-history.muted > span { color: var(--muted); }
+.market-history.muted > svg { color: var(--faint); }
+.market-history.market-new { border-style: solid; border-color: var(--ok-soft); background: var(--ok-soft); }
+.market-history.market-new > svg { color: var(--ok); }
+
+/* ---------- Crawl depth: one ruled row of three ---------- */
+.crawl-picker > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--rule); border-radius: var(--radius); background: var(--sheet); overflow: hidden; }
+.crawl-option {
+  position: relative; min-width: 0; min-height: 84px; padding: 12px 14px; display: grid; grid-template-columns: minmax(0, 1fr) 20px; align-items: center; gap: 10px;
+  font-weight: var(--weight-regular); cursor: pointer; transition: background-color var(--dur-fast) ease;
+}
+.crawl-option + .crawl-option { border-left: 1px solid var(--hair); }
+.crawl-option:hover { background: var(--sheet-2); }
+.crawl-option.selected { z-index: 1; background: var(--action-soft); box-shadow: inset 0 0 0 1px var(--action); }
+.crawl-option:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: -2px; }
+.crawl-option > span:first-of-type { min-width: 0; display: grid; gap: 3px; }
+.crawl-option strong { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; font-size: var(--type-body); font-weight: var(--weight-semibold); color: var(--text); }
+.crawl-option em { color: var(--text-2); font-size: var(--type-caption); font-style: normal; font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; }
+.crawl-option i { color: var(--muted); font-size: var(--type-caption); font-style: normal; line-height: 1.35; }
+
+/* ---------- Selected source summary ---------- */
+.unified-discovery { border: 1px solid var(--hair); border-radius: var(--radius); background: var(--sheet); }
+.unified-title { min-height: 56px; padding: 11px 14px; display: flex; align-items: center; gap: 12px; }
+.unified-title > svg { width: 18px; height: 18px; flex: none; color: var(--ev-4); }
+.unified-title > span { min-width: 0; display: grid; gap: 1px; }
+.unified-title strong { font-size: var(--type-body); color: var(--text); }
+.unified-title small { color: var(--muted); font-size: var(--type-caption); line-height: 1.4; }
+.unified-title em {
+  margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 5px; color: var(--action);
+  font: var(--weight-semibold) 12.5px/1 var(--font-label); font-style: normal; text-transform: uppercase; letter-spacing: var(--label-tracking);
+}
+.unified-title em svg { width: 13px; height: 13px; stroke-width: 2.6; }
+
+/* ---------- Progress and actions ---------- */
+.form-surface > .error-panel { margin: var(--space-5) 0 0; }
+.form-surface > .search-progress { margin: var(--space-5) 0 0; }
+.form-surface .search-progress-head { justify-content: space-between; }
+.form-surface .search-progress-head > span { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.form-surface .search-progress-head > span > span { display: grid; gap: 1px; }
+.form-surface .search-progress-head time { color: var(--text-2); font: var(--weight-medium) var(--type-caption) var(--font-mono); }
+.form-surface .search-progress-track > span { position: absolute; inset: 0 auto 0 0; width: 34%; border-radius: 3px; background: var(--action); animation: search-sweep 1.5s var(--ease-out) infinite; }
+.form-surface .search-progress-foot { justify-content: space-between; }
+
+.form-actions {
+  margin: var(--space-5) -28px -28px; padding: 14px 28px; display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--space-2);
+  border-top: 1px solid var(--hair); border-radius: 0 0 var(--radius-lg) var(--radius-lg); background: var(--sheet-2);
+}
+.form-action-note { min-width: 0; margin-right: auto; display: flex; align-items: center; gap: var(--space-2); color: var(--muted); font-size: var(--type-caption); }
+.form-action-note > svg { width: 16px; height: 16px; flex: none; color: var(--ev-3); }
+.form-action-note strong { color: var(--text); font: var(--weight-medium) var(--type-caption) var(--font-mono); }
+
+/* ---------- The search blueprint ---------- */
+.run-brief {
+  position: sticky; top: 72px; min-width: 0; overflow: hidden;
+  border: 1px solid var(--hair); border-radius: var(--radius-lg); background: var(--sheet); box-shadow: var(--shadow-1);
+}
+.brief-head {
+  min-height: 64px; padding: 14px 18px; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 12px;
+  color: var(--cloth-text); background: var(--cloth);
+}
+.brief-head > span { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--cloth-line); border-radius: var(--radius); color: var(--cloth-accent); background: var(--cloth-raised); }
+.brief-head svg { width: 17px; height: 17px; }
+.brief-head > div { min-width: 0; display: grid; gap: 2px; }
+.brief-head strong { color: #fff; font-size: var(--type-lead); font-weight: var(--weight-semibold); }
+.brief-head i {
+  padding: 3px 7px; border: 1px solid var(--cloth-line); border-radius: var(--radius-sm); color: var(--cloth-text);
+  font: var(--weight-semibold) var(--type-micro)/1.3 var(--font-label); font-style: normal; text-transform: uppercase; letter-spacing: var(--label-tracking);
+}
+.brief-market > span, .brief-mode > span {
+  font: var(--weight-semibold) 12.5px/1.2 var(--font-label); text-transform: uppercase; letter-spacing: var(--label-tracking); color: var(--muted);
+}
+.brief-market, .brief-mode { padding: 18px; display: grid; gap: 8px; border-bottom: 1px solid var(--hair); }
+.brief-market > strong { font-size: var(--type-heading); line-height: 1.25; font-weight: var(--weight-semibold); color: var(--text); overflow-wrap: anywhere; }
+.brief-market small { display: flex; align-items: center; gap: 6px; color: var(--text-2); }
+.brief-market small svg { width: 14px; height: 14px; flex: none; color: var(--ev-3); }
+.brief-mode > div { display: grid; gap: 4px; }
+.brief-mode strong { font-size: var(--type-body); color: var(--text); }
+.brief-mode p { color: var(--muted); font-size: var(--type-caption); line-height: 1.5; }
+
+/* Crawl figures as a ruled ledger: label left, figure right. */
+.brief-stats { display: grid; padding: 6px 18px; border-bottom: 1px solid var(--hair); }
+.brief-stats > div { min-height: 38px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 9px 0; }
+.brief-stats > div + div { border-top: 1px dashed var(--rule); }
+.brief-stats span { order: -1; color: var(--text-2); font-size: var(--type-caption); }
+.brief-stats span::first-letter { text-transform: uppercase; }
+.brief-stats strong { color: var(--text); font: var(--weight-medium) var(--type-body) var(--font-mono); font-variant-numeric: tabular-nums; }
+
+.brief-foot { padding: 14px 18px; display: flex; align-items: center; gap: 10px; background: var(--sheet-2); }
+.brief-foot > svg { width: 16px; height: 16px; flex: none; color: var(--ev-4); }
+.brief-foot > span { min-width: 0; display: grid; gap: 1px; }
+.brief-foot strong { font-size: var(--type-caption); color: var(--text); }
+.brief-foot small { color: var(--muted); font-size: var(--type-caption); }
+
+/* ---------- Widths: react to the room the page and the form actually get ---------- */
+
+/* Not enough room for the form and the brief side by side: put the brief underneath. */
+@container page (max-width: 1000px) {
+  .new-run-layout { grid-template-columns: minmax(0, 1fr); }
+  .run-brief { position: static; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .brief-head, .brief-stats, .brief-foot { grid-column: 1 / -1; }
+  .brief-market { border-right: 1px solid var(--hair); }
+  .brief-stats { grid-template-columns: repeat(3, auto); justify-content: start; padding: 4px 18px; }
+  .brief-stats > div { justify-content: flex-start; gap: 8px; padding: 9px 18px 9px 0; }
+  .brief-stats > div + div { border-top: 0; padding-left: 18px; border-left: 1px solid var(--hair); }
+}
+@container page (max-width: 560px) {
+  .run-brief { display: block; }
+  .brief-market { border-right: 0; }
+  .brief-stats { grid-template-columns: minmax(0, 1fr); }
+  .brief-stats > div { justify-content: space-between; padding: 9px 0; }
+  .brief-stats > div + div { border-top: 1px dashed var(--rule); border-left: 0; padding-left: 0; }
+  .form-surface { padding: 18px; }
+  .form-actions { margin: var(--space-5) -18px -18px; padding: 14px 18px; }
+  .form-action-note { flex: 1 0 100%; margin-right: 0; }
+  .form-actions .button { flex: 1 1 0; }
+}
+
+/* Three source cards need about 190px each; below that, stack them as full-width rows. */
+@container run-form (max-width: 700px) {
+  .source-picker > div { grid-template-columns: minmax(0, 1fr); }
+  .source-option { min-height: 0; grid-template-columns: 32px minmax(0, 1fr) 20px; grid-template-rows: auto auto; row-gap: 2px; }
+  .source-option > span { grid-row: 1 / 3; }
+  .source-option > em { grid-column: 2 / 3; }
+}
+/* Three crawl depths side by side need about 190px each. */
+@container run-form (max-width: 660px) {
+  .crawl-picker > div { grid-template-columns: minmax(0, 1fr); }
+  .crawl-option { min-height: 64px; }
+  .crawl-option + .crawl-option { border-left: 0; border-top: 1px solid var(--hair); }
+}
+@container run-form (max-width: 520px) {
+  .form-surface .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .advanced-body { padding: var(--space-4) 12px; }
+  .unified-title { align-items: flex-start; }
+  .unified-title > svg { margin-top: 2px; }
+  .unified-title em { display: none; }
+}

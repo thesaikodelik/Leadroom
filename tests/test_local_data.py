@@ -67,6 +67,18 @@ class LocalDataTests(TestCase):
         self.assertNotIn("generic_email", lead["field_evidence"])
         self.assertEqual(lead["phones"], ["+44 20 7946 0102"])
 
+    def test_local_coordinates_survive_into_the_run_and_its_exports(self):
+        # The run's map plots leads by these; clean_leads used to drop them.
+        from app.normalizer import clean_leads
+        from app.pipeline import _merge_osm_seed
+
+        local = clean_leads([_lead_from_osm(LocalDataService._candidate(OSM_ROW))])[0]
+        self.assertEqual((local["latitude"], local["longitude"]), ("51.51", "-0.14"))
+
+        web_lead = {"business_name": "Elm Beauty Rooms", "website": "https://elmbeauty.co.uk/", "emails": [], "phones": []}
+        _merge_osm_seed(web_lead, {**LocalDataService._candidate(OSM_ROW), "homepage": "https://elmbeauty.co.uk/"})
+        self.assertEqual((web_lead["latitude"], web_lead["longitude"]), ("51.51", "-0.14"))
+
     def test_hybrid_candidate_keeps_its_local_seed_for_enrichment(self):
         self.assertTrue(_has_local_seed({"source": "hybrid", "sources": ["web", "local"]}))
 

@@ -32,11 +32,13 @@ export const idleUpdates = { current_version: '0.1.3', phase: 'idle', version: n
 
 export async function mockShell(page: Page) {
   await page.route('**/api/v1/updates', (route) => route.fulfill({ json: idleUpdates }))
+  await page.route('**/api/v1/outreach/budget', (route) => route.fulfill({ json: { sent: 0, reserved: 0, limit: 25 } }))
+  await page.route('**/api/v1/outreach/drafts', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/v1/health', (route) => route.fulfill({ json: { status: 'ok', database: 'ok' } }))
   await page.route('**/api/v1/settings/email-accounts', (route) => route.fulfill({ json: { accounts: [], default_account_id: '' } }))
   await page.route('**/api/v1/settings', (route) => route.fulfill({ json: {
     workspace_name: 'Leadroom', workspace_subtitle: 'Signal desk', logo_data_url: '',
-    theme: 'brushstroke', email_configured: false, email_accounts: [], default_email_account_id: '', default_model: 'ollama/llama3.2:3b',
+    theme: 'fieldbook', email_configured: false, email_accounts: [], default_email_account_id: '', default_model: 'ollama/llama3.2:3b',
     model_provider: 'ollama', model_name: 'llama3.2:3b', model_endpoint: 'http://localhost:11434',
     api_key_configured: false, smtp_password_configured: false, blocked_domains: [],
     limits: { max_results_per_query: 100, max_sites: 500 }, search_providers: ['hybrid', 'osm_local', 'auto'],

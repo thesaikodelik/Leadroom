@@ -372,25 +372,35 @@ class ComplianceService:
                 row.approved_at = now
             return {"approved": len(rows), "drafts": [_draft_dict(row) for row in rows]}
 
+    def send_budget(self) -> dict[str, int]:
+        """Messages sent in the last 24 hours and those already queued, against the limit."""
+        with self.repository.sessions.begin() as session:
+            sent, reserved = self._usage(session)
+        return {"sent": sent, "reserved": reserved, "limit": DAILY_EXPORT_LIMIT}
+
+    def _usage(self, session) -> tuple[int, int]:
+        day_start = _now() - timedelta(hours=24)
+        sent = (
+            session.query(OutreachDeliveryRecord)
+            .filter(
+                OutreachDeliveryRecord.status.in_({"sent", "sent_after_suppression"}),
+                OutreachDeliveryRecord.completed_at >= day_start,
+            )
+            .count()
+        )
+        reserved = (
+            session.query(OutreachDraftRecord)
+            .filter(OutreachDraftRecord.status.in_({"queued", "sending"}))
+            .count()
+        )
+        return sent, reserved
+
     def queue_deliveries(self, draft_ids: list[str]) -> list[str]:
         unique_ids = list(dict.fromkeys(draft_ids))
         if not unique_ids or len(unique_ids) > DAILY_EXPORT_LIMIT:
             raise ValueError(f"Send batch must contain 1-{DAILY_EXPORT_LIMIT} drafts")
         with self.repository.sessions.begin() as session:
-            day_start = _now() - timedelta(hours=24)
-            sent_today = (
-                session.query(OutreachDeliveryRecord)
-                .filter(
-                    OutreachDeliveryRecord.status.in_({"sent", "sent_after_suppression"}),
-                    OutreachDeliveryRecord.completed_at >= day_start,
-                )
-                .count()
-            )
-            reserved = (
-                session.query(OutreachDraftRecord)
-                .filter(OutreachDraftRecord.status.in_({"queued", "sending"}))
-                .count()
-            )
+            sent_today, reserved = self._usage(session)
             if sent_today + reserved + len(unique_ids) > DAILY_EXPORT_LIMIT:
                 raise ValueError("Daily outreach send limit exceeded")
             rows = [_require_draft(session, draft_id) for draft_id in unique_ids]

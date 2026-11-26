@@ -881,6 +881,9 @@ class RunRepository:
                 "status": run.status,
                 "counts": counts,
                 "discovery": json.loads(discovery_event.payload_json) if discovery_event else {},
+                "created_at": run.created_at.isoformat(),
+                "updated_at": run.updated_at.isoformat(),
+                **self._run_brief(run.config_json),
             }
 
     def list_runs(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -894,9 +897,24 @@ class RunRepository:
                     "created_at": row.created_at.isoformat(),
                     "updated_at": row.updated_at.isoformat(),
                     "counts": self._status_counts(row.candidates),
+                    **self._run_brief(row.config_json),
                 }
                 for row in rows
             ]
+
+    @staticmethod
+    def _run_brief(config_json: str) -> dict[str, str]:
+        """What the run looked for, for headings: niche, location, crawl depth and source."""
+        try:
+            config = json.loads(config_json or "{}")
+        except ValueError:
+            config = {}
+        return {
+            "niche": str(config.get("niche") or ""),
+            "location": str(config.get("location") or ""),
+            "crawl_mode": str(config.get("crawl_mode") or ""),
+            "search_provider": str(config.get("search_provider") or ""),
+        }
 
     @staticmethod
     def _status_counts(candidates: list[CandidateRecord]) -> dict[str, int]:

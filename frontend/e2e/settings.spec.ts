@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test'
 const initialSettings = {
   model_provider: 'ollama', model_name: 'llama3.2:3b', default_model: 'ollama/llama3.2:3b',
   model_endpoint: 'http://localhost:11434', ollama_base_url: 'http://localhost:11434', api_key_configured: false,
-  blocked_domains: ['github.com', 'wikipedia.org'], workspace_name: 'Leadroom', workspace_subtitle: 'Signal desk', logo_data_url: '', theme: 'brushstroke',
+  blocked_domains: ['github.com', 'wikipedia.org'], workspace_name: 'Leadroom', workspace_subtitle: 'Signal desk', logo_data_url: '', theme: 'fieldbook',
   smtp_host: '', smtp_port: 587, smtp_security: 'starttls', smtp_username: '', smtp_password_configured: false,
   smtp_from_email: '', smtp_from_name: '', smtp_reply_to: '', email_accounts: [], default_email_account_id: '', email_configured: false,
 }
@@ -20,6 +20,7 @@ async function mockSettings(page: Page) {
     data_disk: { free_bytes: 150_000_000_000, total_bytes: 500_000_000_000 }, downloads_disk: { free_bytes: 700_000_000_000, total_bytes: 1_000_000_000_000 }, restart_required: false, ollama_restart_required: false,
   }
   await page.route('**/api/v1/health', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ status: 'ok', database: 'ok' }) }))
+  await page.route('**/api/v1/outreach/budget', (route) => route.fulfill({ json: { sent: 0, reserved: 0, limit: 25 } }))
   await page.route('**/api/v1/updates', (route) => route.fulfill({ json: { current_version: '0.1.3', phase: 'idle', version: null, page: '', notes: '', progress: 0, error: '', postponed: false, installed: true, enabled: true } }))
   await page.route('**/api/v1/local-data/status', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ready: true, database: 'online', message: 'Local discovery is ready.', businesses: 1200, with_website: 800, with_phone: 900, with_email: 240, dataset: 'OpenStreetMap Great Britain', update_status: 'idle', update_schedule: 'Daily at 03:30' }) }))
   await page.route('**/api/v1/settings/storage/browse', (route) => route.fulfill({ json: { path: 'D:\\Leadroom' } }))
@@ -135,68 +136,52 @@ for (const viewport of [{ name: 'desktop', width: 1440, height: 1000 }, { name: 
   })
 }
 
-test('theme selection applies immediately and persists', async ({ page }, testInfo) => {
+test('palette and appearance apply immediately and persist', async ({ page }, testInfo) => {
   await mockSettings(page)
   await page.goto('/settings')
 
-  await expect(page.getByRole('radio', { name: /Brushstroke/ })).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByRole('radio', { name: /Field Book/ })).toHaveAttribute('aria-checked', 'true')
   const initialLayoutY = await page.locator('.settings-layout').evaluate((element) => element.getBoundingClientRect().top + window.scrollY)
-  await page.getByRole('radio', { name: /Genesis/ }).click()
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'genesis')
-  expect((await contrastRatio(page, '.eyebrow')).ratio).toBeGreaterThanOrEqual(4.5)
+  await page.getByRole('radio', { name: /Oxblood/ }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'oxblood')
+  await expect(page.getByRole('radio', { name: /Oxblood/ })).toHaveAttribute('aria-checked', 'true')
+  expect((await contrastRatio(page, '.settings-section > header p')).ratio).toBeGreaterThanOrEqual(4.5)
   await expect(page.getByText('Settings saved')).toBeVisible()
   const changedLayoutY = await page.locator('.settings-layout').evaluate((element) => element.getBoundingClientRect().top + window.scrollY)
   expect(Math.abs(changedLayoutY - initialLayoutY)).toBeLessThanOrEqual(1)
   await expect(page.getByText('Settings saved')).toHaveCSS('position', 'fixed')
-  await page.screenshot({ path: testInfo.outputPath('genesis-settings.png'), fullPage: true })
+  await page.screenshot({ path: testInfo.outputPath('oxblood-settings.png'), fullPage: true })
 
-  await page.getByRole('radio', { name: /Flip7/ }).click()
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'flip7')
-  const flip7PrimaryContrast = await contrastRatio(page, '.button.primary')
-  expect(flip7PrimaryContrast.ratio, JSON.stringify(flip7PrimaryContrast)).toBeGreaterThanOrEqual(4.5)
-  await page.screenshot({ path: testInfo.outputPath('flip7-settings.png'), fullPage: true })
+  await page.getByRole('radio', { name: /Navy/ }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'navy')
+  const navyPrimaryContrast = await contrastRatio(page, '.button.primary')
+  expect(navyPrimaryContrast.ratio, JSON.stringify(navyPrimaryContrast)).toBeGreaterThanOrEqual(4.5)
 
-  await page.getByRole('radio', { name: /RawBlock/ }).click()
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'rawblock')
-  await page.screenshot({ path: testInfo.outputPath('rawblock-settings.png'), fullPage: true })
+  await page.getByRole('radio', { name: /Graphite/ }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'graphite')
+  await expect(page.locator('html')).not.toHaveClass(/theme-transitioning/)
 
-  await page.getByRole('radio', { name: /Evreghen/ }).click()
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'evreghen')
-  await page.screenshot({ path: testInfo.outputPath('evreghen-settings.png'), fullPage: true })
-
-  await page.getByRole('radio', { name: /Ember Studio/ }).click()
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'ember')
+  // Light or dark belongs to this computer: it is not sent to the API.
+  const appearance = page.getByRole('group', { name: 'Light or dark' })
+  await appearance.getByRole('button', { name: 'Dark', exact: true }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-appearance', 'dark')
+  await expect(appearance.getByRole('button', { name: 'Dark', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator('html')).not.toHaveClass(/theme-transitioning/)
   await page.waitForTimeout(250)
-  await page.screenshot({ path: testInfo.outputPath('ember-settings.png'), fullPage: true })
-
-  await page.getByRole('radio', { name: /InsightDeck/ }).click()
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'insightdeck')
-  await page.screenshot({ path: testInfo.outputPath('insightdeck-settings.png'), fullPage: true })
-
-  await page.getByRole('radio', { name: /Trust Blue Pay/ }).click()
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'trustblue')
-  await expect(page.locator('html')).not.toHaveClass(/theme-transitioning/)
-  await page.waitForTimeout(250)
-  const trustBlueContrast = await contrastRatio(page, '.button.primary')
-  expect(trustBlueContrast.ratio, JSON.stringify(trustBlueContrast)).toBeGreaterThanOrEqual(4.5)
-  await page.screenshot({ path: testInfo.outputPath('trustblue-settings.png'), fullPage: true })
-
-  await page.getByRole('radio', { name: /ZenGrid/ }).click()
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'zengrid')
-  await expect(page.locator('html')).not.toHaveClass(/theme-transitioning/)
-  await page.waitForTimeout(250)
-  const zenGridContrast = await contrastRatio(page, '.button.primary')
-  expect(zenGridContrast.ratio, JSON.stringify(zenGridContrast)).toBeGreaterThanOrEqual(4.5)
-  await page.screenshot({ path: testInfo.outputPath('zengrid-settings.png'), fullPage: true })
-
-  await page.getByRole('radio', { name: /Vercel Interface/ }).click()
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'vercel')
-  await page.screenshot({ path: testInfo.outputPath('vercel-settings.png'), fullPage: true })
+  for (const selector of ['.button.primary', '.settings-section > header p', '.theme-block-copy small']) {
+    const darkContrast = await contrastRatio(page, selector)
+    expect(darkContrast.ratio, `${selector} ${JSON.stringify(darkContrast)}`).toBeGreaterThanOrEqual(4.5)
+  }
+  await page.screenshot({ path: testInfo.outputPath('graphite-dark-settings.png'), fullPage: true })
 
   await page.reload()
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'vercel')
-  await expect(page.getByRole('radio', { name: /Vercel Interface/ })).toHaveAttribute('aria-checked', 'true')
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'graphite')
+  await expect(page.locator('html')).toHaveAttribute('data-appearance', 'dark')
+  await expect(page.getByRole('radio', { name: /Graphite/ })).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByRole('group', { name: 'Light or dark' }).getByRole('button', { name: 'Dark', exact: true })).toHaveAttribute('aria-pressed', 'true')
+
+  await page.getByRole('group', { name: 'Light or dark' }).getByRole('button', { name: 'Light', exact: true }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-appearance', 'light')
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false)
 })
 
@@ -283,7 +268,8 @@ for (const viewport of [{ name: 'desktop', width: 1440, height: 1000 }, { name: 
     const savedPayloads = await mockSettings(page)
     await page.goto('/settings')
 
-    await expect(page.getByRole('link', { name: 'Local data' })).toHaveCount(0)
+    // The index is managed here; the rail's Local data link is the only one.
+    await expect(page.locator('main').getByRole('link', { name: 'Local data' })).toHaveCount(0)
     await expect(page.getByRole('heading', { name: 'Local discovery index' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Sync data' })).toBeVisible()
 

@@ -215,7 +215,7 @@ class ApiTests(unittest.TestCase):
                 "workspace_name": "Northstar",
                 "workspace_subtitle": "Lead desk",
                 "logo_data_url": logo,
-                "theme": "vercel",
+                "theme": "navy",
             },
         )
 
@@ -226,16 +226,16 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(data["blocked_domains"], ["directory.example"])
         self.assertEqual(data["workspace_name"], "Northstar")
         self.assertEqual(data["logo_data_url"], logo)
-        self.assertEqual(data["theme"], "vercel")
+        self.assertEqual(data["theme"], "navy")
         self.assertTrue(data["api_key_configured"])
         self.assertNotIn("api_key", data)
 
-        trust_blue = self.client.patch("/api/v1/settings/theme", json={"theme": "trustblue"})
+        trust_blue = self.client.patch("/api/v1/settings/theme", json={"theme": "oxblood"})
         self.assertEqual(trust_blue.status_code, 200)
-        self.assertEqual(trust_blue.json()["theme"], "trustblue")
-        zen_grid = self.client.patch("/api/v1/settings/theme", json={"theme": "zengrid"})
+        self.assertEqual(trust_blue.json()["theme"], "oxblood")
+        zen_grid = self.client.patch("/api/v1/settings/theme", json={"theme": "graphite"})
         self.assertEqual(zen_grid.status_code, 200)
-        self.assertEqual(zen_grid.json()["theme"], "zengrid")
+        self.assertEqual(zen_grid.json()["theme"], "graphite")
         self.assertEqual(
             self.client.patch("/api/v1/settings/theme", json={"theme": "unknown"}).status_code,
             422,
@@ -243,14 +243,14 @@ class ApiTests(unittest.TestCase):
 
         newest = self.client.patch(
             "/api/v1/settings/theme",
-            json={"theme": "trustblue", "version": 200},
+            json={"theme": "oxblood", "version": 200},
         )
         stale = self.client.patch(
             "/api/v1/settings/theme",
-            json={"theme": "rawblock", "version": 100},
+            json={"theme": "graphite", "version": 100},
         )
-        self.assertEqual(newest.json()["theme"], "trustblue")
-        self.assertEqual(stale.json()["theme"], "trustblue")
+        self.assertEqual(newest.json()["theme"], "oxblood")
+        self.assertEqual(stale.json()["theme"], "oxblood")
 
         repo = RunRepository(self.database_path)
         try:
@@ -439,7 +439,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(settings["model_endpoint"], "http://localhost:11434")
         self.assertEqual(settings["blocked_domains"], ["good.example"])
         self.assertEqual(settings["workspace_name"], "Leadroom")
-        self.assertEqual(settings["theme"], "brushstroke")
+        self.assertEqual(settings["theme"], "fieldbook")
         self.assertEqual(settings["smtp_port"], 587)
         self.assertEqual(settings["smtp_security"], "starttls")
         self.assertEqual(settings["email_accounts"], [])
@@ -579,7 +579,7 @@ class ApiTests(unittest.TestCase):
                 "model_name": "llama3.2:3b",
                 "model_endpoint": "http://localhost:11434",
                 "workspace_name": "Unsaved-safe workspace",
-                "theme": "ember",
+                "theme": "graphite",
             }
         )
         repo.engine.dispose()
@@ -594,7 +594,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["model_name"], "qwen2.5:7b")
         self.assertEqual(response.json()["workspace_name"], "Unsaved-safe workspace")
-        self.assertEqual(response.json()["theme"], "ember")
+        self.assertEqual(response.json()["theme"], "graphite")
 
     @patch("app.api.httpx.get")
     def test_ollama_catalog_merges_official_models_with_local_inventory(self, get):
@@ -1036,6 +1036,8 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(drafts[0]["status"], "sent")
         self.assertEqual(drafts[0]["delivery_status"], "sent")
         self.assertEqual(drafts[0]["provider_message_id"], "<message-1@example.test>")
+        # The sidebar's daily budget counts the same sends the limit enforces.
+        self.assertEqual(self.client.get("/api/v1/outreach/budget").json(), {"sent": 1, "reserved": 0, "limit": 25})
 
     @patch("app.api.search_business_sites", return_value=[SITE])
     def test_candidate_selection_settings_and_missing_export(self, _search):

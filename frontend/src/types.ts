@@ -8,6 +8,10 @@ export interface RunSummary {
   created_at?: string
   updated_at?: string
   discovery?: DiscoverySummary
+  niche?: string
+  location?: string
+  crawl_mode?: '' | 'quick' | 'deep' | 'exhaustive'
+  search_provider?: string
 }
 
 export type DiscoveryMode = 'new_only' | 'reuse' | 'refresh'
@@ -122,6 +126,9 @@ export interface Lead {
   lead_reason: string
   domain: string
   field_evidence: Record<string, FieldEvidence>
+  address?: string
+  latitude?: string
+  longitude?: string
   enrichment_errors: string[]
 }
 
@@ -171,7 +178,7 @@ export interface WorkspaceSettings {
   workspace_name: string
   workspace_subtitle: string
   logo_data_url: string
-  theme: 'brushstroke' | 'genesis' | 'flip7' | 'rawblock' | 'evreghen' | 'ember' | 'insightdeck' | 'vercel' | 'trustblue' | 'zengrid'
+  theme: 'fieldbook' | 'oxblood' | 'navy' | 'graphite'
   smtp_host: string
   smtp_port: number
   smtp_security: 'starttls' | 'ssl' | 'none'

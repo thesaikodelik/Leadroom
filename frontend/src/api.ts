@@ -104,6 +104,7 @@ export const api = {
   cancelOllamaPull: (jobId: string) => request<OllamaPullJob>(`/settings/ollama/pulls/${jobId}/cancel`, { method: 'POST' }),
   benchmarkOllamaModel: (model: string) => request<ModelBenchmark>('/settings/ollama/benchmark', { method: 'POST', body: JSON.stringify({ model }) }),
   listDrafts: () => request<OutreachDraft[]>('/outreach/drafts'),
+  outreachBudget: () => request<{ sent: number; reserved: number; limit: number }>('/outreach/budget'),
   createDraft: (payload: Record<string, unknown>) =>
     request<OutreachDraft>('/outreach/drafts', { method: 'POST', body: JSON.stringify(payload) }),
   outreachPreflight: (runId: string) =>

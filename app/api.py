@@ -55,18 +55,10 @@ from app.updater import Updater, current_version
 
 DEFAULT_WORKSPACE_NAME = "Leadroom"
 DEFAULT_WORKSPACE_SUBTITLE = "Signal desk"
-VALID_THEMES = {
-    "brushstroke",
-    "genesis",
-    "flip7",
-    "rawblock",
-    "evreghen",
-    "ember",
-    "insightdeck",
-    "vercel",
-    "trustblue",
-    "zengrid",
-}
+# Palettes of the one Leadroom design. Workspaces saved with an earlier theme name are
+# moved to the default palette when their settings are read.
+VALID_THEMES = {"fieldbook", "oxblood", "navy", "graphite"}
+DEFAULT_THEME = "fieldbook"
 
 
 def _text_or_default(value: Any, default: str) -> Any:
@@ -219,8 +211,8 @@ class SettingsUpdate(BaseModel):
     workspace_subtitle: str = Field(default=DEFAULT_WORKSPACE_SUBTITLE, max_length=60)
     logo_data_url: str = Field(default="", max_length=700_000)
     theme: str = Field(
-        default="brushstroke",
-        pattern="^(brushstroke|genesis|flip7|rawblock|evreghen|ember|insightdeck|vercel|trustblue|zengrid)$",
+        default=DEFAULT_THEME,
+        pattern="^(fieldbook|oxblood|navy|graphite)$",
     )
     smtp_host: str | None = Field(default=None, max_length=255)
     smtp_port: int | None = Field(default=None, ge=1, le=65535)
@@ -317,7 +309,7 @@ class StorageBrowse(BaseModel):
 
 class ThemeUpdate(BaseModel):
     theme: str = Field(
-        pattern="^(brushstroke|genesis|flip7|rawblock|evreghen|ember|insightdeck|vercel|trustblue|zengrid)$"
+        pattern="^(fieldbook|oxblood|navy|graphite)$"
     )
     version: int = Field(default=0, ge=0)
 
@@ -406,7 +398,7 @@ def _settings_payload(repo: RunRepository) -> dict[str, Any]:
         repairs["workspace_subtitle"] = workspace_subtitle
     theme = str(stored.get("theme") or "")
     if theme not in VALID_THEMES:
-        theme = "brushstroke"
+        theme = DEFAULT_THEME
         repairs["theme"] = theme
     try:
         smtp_port = int(stored.get("smtp_port", "587") or 587)
@@ -1725,6 +1717,14 @@ def create_app(database_path: Path | None = None, frontend_dir: Path | None = No
         service = compliance()
         try:
             return service.add_suppression(payload.value, payload.kind, payload.reason)
+        finally:
+            service.close()
+
+    @app.get("/api/v1/outreach/budget")
+    def outreach_budget() -> dict[str, int]:
+        service = compliance()
+        try:
+            return service.send_budget()
         finally:
             service.close()
 

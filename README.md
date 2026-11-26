@@ -71,7 +71,7 @@ Type a **business niche** and a **location**, and pick how wide to search.
 
 ### 2. Keep the businesses you actually want
 
-<img src="docs/screenshots/run-workspace.png" align="right" width="52%" alt="A run workspace listing four dental clinics as candidates, each marked as a local or web result">
+<img src="docs/screenshots/run-workspace.png" align="right" width="52%" alt="A run of dental clinics in London: its progress drawn as a line of stations, the leads table with a mark of evidence beside every email and phone, and one lead's sources open on the right">
 
 Leadroom shows every **candidate** it found, with where it came from. Remove directories,
 aggregators and anything outside your target market, then start enrichment for the rest.
@@ -93,6 +93,21 @@ contact, about, services and locations, plus the sitemap.
 | 🧠 **Enrich** | A local AI model (through [ScrapeGraphAI](https://github.com/ScrapeGraphAI/Scrapegraph-ai)) fills in what the page doesn't state plainly. |
 | 🛡 **Retry gently** | Pages that refuse a simple request are retried through Scrapling, then a real browser. Logins, paywalls and CAPTCHAs are never bypassed. |
 | ✅ **Clean up** | Up to three emails and phone numbers per business, normalised and deduplicated. |
+
+### 4. Check the evidence, and see where they are
+
+<img src="docs/screenshots/run-map.png" align="right" width="52%" alt="The same run on a map of north London, each lead plotted as a point coloured by its score, with the selected lead's sources beside the map">
+
+Every email and phone carries a small triangle that says how it was found:
+
+- **Solid**: the business published it as a link, in structured data or in its map record.
+- **Lower third filled**: it appears in the text of the business's own pages.
+- **Dotted outline**: an AI model read it and it wasn't matched on the page, so check it first.
+
+Select a lead to see each detail's source page. Switch a run to **Map** to see its leads on a
+map; leads without a map position stay in the list.
+
+<br clear="right">
 
 <a id="repository"></a>
 
@@ -193,6 +208,7 @@ contact pages from each site, and the offline map search needs no AI at all.
 - No accounts and no tracking. The default AI model runs on your PC, and Leadroom switches off the
   usage reporting built into ScrapeGraphAI, so page content is never uploaded for analytics.
 - To look for updates, Leadroom reads this repository's public release list on GitHub about once an hour. The optional map index downloads OpenStreetMap changes from Geofabrik. Neither request carries your data.
+- A run's **Map** view loads map tiles for the area on screen from [OpenFreeMap](https://openfreemap.org/), with no key or account. Only the tiles are requested; your leads are drawn on your PC and never sent. The table view needs no connection.
 - The screenshots in this README use made-up `.example` businesses, not real data.
 
 Found a security problem? Please report it privately, as described in [SECURITY.md](SECURITY.md).

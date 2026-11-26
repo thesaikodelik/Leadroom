@@ -46,6 +46,9 @@ test('run tabs expose selected state and the lead drawer behaves as a dialog', a
 
   const candidatesTab = page.getByRole('tab', { name: /Candidates/ })
   const leadsTab = page.getByRole('tab', { name: /Leads/ })
+  // A run with leads opens on them; candidates are one tab away.
+  await expect(leadsTab).toHaveAttribute('aria-selected', 'true')
+  await candidatesTab.click()
   await expect(candidatesTab).toHaveAttribute('aria-selected', 'true')
   const candidate = page.locator('.candidate').first()
   await expect(candidate).toBeVisible()
@@ -60,7 +63,8 @@ test('run tabs expose selected state and the lead drawer behaves as a dialog', a
   await leadsTab.click()
   await expect(leadsTab).toHaveAttribute('aria-selected', 'true')
 
-  await page.getByRole('button', { name: /Harley Street Dental Studio/ }).click()
+  await page.getByRole('row', { name: /Harley Street Dental Studio/ }).getByRole('cell').first().click()
+  await page.getByRole('complementary', { name: 'Evidence for Harley Street Dental Studio' }).getByRole('button', { name: 'Edit' }).click()
   const drawer = page.getByRole('dialog', { name: 'Harley Street Dental Studio' })
   await expect(drawer).toBeVisible()
   await expect(page.getByRole('button', { name: 'Close details' })).toBeFocused()

@@ -1,40 +1,8 @@
 /*
- * Layouts that follow the room a section actually gets, not the window width.
- * The sidebar and the run brief take a fixed share of the window, so a window that is
- * "wide" can still leave the run form narrow; these rules react to the form itself.
- * Loaded after the themes so they win at equal specificity.
+ * Size containers. Screens lay out by the room a section actually gets, not the window
+ * width: the rail takes a fixed share of the window, so a "wide" window can still leave
+ * the content narrow. The rules that react to these containers live with each screen
+ * (run.css, new-run.css and the rest).
  */
 
 .content { container: page / inline-size; }
-.form-surface { container: run-form / inline-size; }
-
-/* Not enough room for the form and the brief side by side: put the brief underneath. */
-@container page (max-width: 1000px) {
-  .new-run-layout { grid-template-columns: minmax(0, 1fr); }
-  .run-brief { position: static; display: grid; grid-template-columns: 1fr 1fr; }
-  .brief-head, .brief-stats, .brief-foot { grid-column: 1 / -1; }
-  .brief-market { border-right: 1px solid #303734; }
-}
-
-@container page (max-width: 560px) {
-  .run-brief { display: block; }
-  .brief-market { border-right: 0; }
-}
-
-/* Three source cards need about 190px each; below that, stack them as full-width rows. */
-@container run-form (max-width: 700px) {
-  .source-picker > div { grid-template-columns: minmax(0, 1fr); }
-  .source-option { min-height: 0; grid-template-columns: 38px minmax(0, 1fr) 22px; }
-  .source-option > em { grid-column: 2 / 3; }
-}
-
-/* Three crawl depths side by side need about 190px each. */
-@container run-form (max-width: 660px) {
-  .crawl-picker > div { grid-template-columns: minmax(0, 1fr); border: 0; gap: 8px; background: transparent; }
-  .crawl-option { min-height: 72px; border: 1px solid var(--line); border-radius: 8px; }
-  .crawl-option + .crawl-option { border-left: 1px solid var(--line); }
-}
-
-/* Badges sit on their own line instead of running past the card edge. */
-.source-option > strong small,
-.crawl-option strong small { white-space: nowrap; }

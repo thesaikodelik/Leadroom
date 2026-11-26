@@ -70,6 +70,11 @@ LEAD_FIELDS = [
     "domain",
     "field_evidence",
     "enrichment_errors",
+    # Only leads matched in the local OpenStreetMap index carry these; the run's
+    # map plots them, and every lead stays in the list either way.
+    "address",
+    "latitude",
+    "longitude",
 ]
 
 BAD_NAMES = {

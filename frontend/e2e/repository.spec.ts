@@ -19,6 +19,7 @@ const leads = [
 
 async function mockHealth(page: Page) {
   await page.route('**/api/v1/health', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ status: 'ok', database: 'ok' }) }))
+  await page.route('**/api/v1/outreach/budget', (route) => route.fulfill({ json: { sent: 0, reserved: 0, limit: 25 } }))
   await page.route('**/api/v1/updates', (route) => route.fulfill({ json: { current_version: '0.1.3', phase: 'idle', version: null, page: '', notes: '', progress: 0, error: '', postponed: false, installed: true, enabled: true } }))
 }
 
@@ -85,8 +86,9 @@ test('recent runs expose stop, continue, and delete controls', async ({ page }) 
   })
 
   await page.goto('/runs')
-  await expect(page.getByRole('link', { name: 'active_search' }).locator('.run-avatar')).toHaveText('A')
-  await expect(page.getByRole('link', { name: 'stopped_search' }).locator('.run-avatar')).toHaveText('S')
+  // The run's progress line identifies the row; there is no letter tile.
+  await expect(page.getByRole('link', { name: 'active_search' }).locator('.run-avatar')).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'stopped_search' }).locator('.run-avatar')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Stop active_search' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Continue stopped_search' })).toBeVisible()
   await page.getByRole('button', { name: 'Stop active_search' }).click()
@@ -182,6 +184,8 @@ test('a completed run can continue with the next search batch', async ({ page },
   })
 
   await page.goto('/runs/continuation-test')
+  // A run with leads opens on its Leads tab; more candidates are found from Candidates.
+  await page.getByRole('tab', { name: /Candidates/ }).click()
   await page.getByRole('button', { name: /Web 2/ }).click()
   const nextBatch = page.getByRole('button', { name: 'Search more web' })
   await expect(nextBatch).toBeVisible()
@@ -219,11 +223,11 @@ test('repository presents merged contacts without page overflow', async ({ page 
   expect(actionBounds.actionsRight).toBeLessThanOrEqual(actionBounds.panelRight + 1)
   expect(actionBounds.actionsLeft).toBeGreaterThanOrEqual(actionBounds.panelLeft - 1)
   await page.getByLabel('Filter by source').selectOption('local')
-  await expect(page.getByText('1 leads')).toBeVisible()
+  await expect(page.getByText('1 lead', { exact: true })).toBeVisible()
   await expect(page.getByText('Harbour Lane Builders')).toBeVisible()
   await page.getByLabel('Filter by source').selectOption('')
   await page.getByLabel('Search saved leads').fill('Oakfield')
-  await expect(page.getByText('1 leads')).toBeVisible()
+  await expect(page.getByText('1 lead', { exact: true })).toBeVisible()
   await page.getByLabel('Search saved leads').fill('')
   await page.getByRole('button', { name: /Collection All leads/i }).click()
   const picker = page.getByRole('dialog', { name: 'Choose collections' })

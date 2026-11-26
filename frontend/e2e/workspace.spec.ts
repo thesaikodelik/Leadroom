@@ -15,18 +15,25 @@ test('run review and lead evidence workflow', async ({ page }, testInfo) => {
   expect(Date.now() - navigationStarted).toBeLessThan(2000)
   await expect(page.getByText('Harley Street Dental Studio')).toBeVisible()
 
+  // Leads open first when a run has them; tabs move with the arrow, Home and End keys.
+  await expect(page.getByRole('tabpanel', { name: /Leads/ })).toBeVisible()
   const candidatesTab = page.getByRole('tab', { name: /Candidates/ })
-  await candidatesTab.focus()
+  await candidatesTab.click()
   await candidatesTab.press('ArrowRight')
+  await expect(page.getByRole('tab', { name: /Reading/ })).toBeFocused()
   await expect(page.getByText('7 of 20 pages · 2 contacts')).toBeVisible()
   await expect(page.getByLabel('7 of 20 pages checked')).toBeVisible()
-  await page.getByRole('tab', { name: /Progress/ }).press('End')
+  await page.getByRole('tab', { name: /Reading/ }).press('Home')
   await expect(page.getByRole('tab', { name: /Leads/ })).toBeFocused()
   await expect(page.getByRole('tabpanel', { name: /Leads/ })).toBeVisible()
-  await expect(page.getByRole('button', { name: /Harley Street Dental Studio/ })).toBeVisible()
-  await page.getByRole('button', { name: /Harley Street Dental Studio/ }).click()
+
+  // Selecting a lead opens its evidence beside the table; editing opens the lead form.
+  await page.getByRole('row', { name: /Harley Street Dental Studio/ }).getByRole('cell').first().click()
+  const evidence = page.getByRole('complementary', { name: 'Evidence for Harley Street Dental Studio' })
+  await expect(evidence).toBeVisible()
+  await expect(evidence.getByText('hello@harleystreet.example')).toBeVisible()
+  await evidence.getByRole('button', { name: 'Edit' }).click()
   await expect(page.getByRole('dialog', { name: 'Harley Street Dental Studio' })).toBeVisible()
-  await expect(page.getByText('hello@harleystreet.example').first()).toBeVisible()
   await expect(page.getByRole('button', { name: 'Save changes' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Review outreach eligibility' })).toBeVisible()
 

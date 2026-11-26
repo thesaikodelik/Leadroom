@@ -1,0 +1,162 @@
+/*
+ * Leadroom design tokens: the Survey Field Book world.
+ *
+ * A deep bookcloth rail, cool survey-paper ground, ruled hairlines, ink blue for every
+ * action and selection, surveyor's red only for errors, and one five-step evidence ramp.
+ * Palettes (data-theme) change the cloth and the ramp; appearance (data-appearance:
+ * light / dark, resolved from the system by theme.ts) changes the paper.
+ */
+
+:root {
+  /* Type */
+  --font-ui: "Public Sans Variable", "Segoe UI", system-ui, sans-serif;
+  --font-label: "Barlow Condensed", "Arial Narrow", "Segoe UI", sans-serif;
+  --font-mono: "Roboto Mono Variable", Consolas, monospace;
+  --type-micro: 11px;
+  --type-caption: 12.5px;
+  --type-body: 14px;
+  --type-lead: 15.5px;
+  --type-heading: 18px;
+  --type-title: 24px;
+  --type-display: 32px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --label-tracking: 0.07em;
+
+  /* Space and shape */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 40px; --space-8: 48px;
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 9px;
+  --rail-width: 220px;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 140ms;
+  --dur: 200ms;
+
+  /* Field Book cloth (palette) */
+  --cloth: #1F3A30;
+  --cloth-deep: #172D25;
+  --cloth-raised: rgba(255, 255, 255, 0.08);
+  --cloth-line: rgba(255, 255, 255, 0.11);
+  --cloth-text: #D9E6DF;
+  --cloth-muted: #9DB6AA;
+  --cloth-accent: #F4F7F4;
+  --ev-1: #B9CEC4; --ev-2: #8DAF9F; --ev-3: #5E8C7B; --ev-4: #2F6151; --ev-5: #1F3A30;
+
+  /* Paper (light appearance) */
+  --paper: #F3F6F3;
+  --sheet: #FFFFFF;
+  --sheet-2: #F8FAF8;
+  --sheet-3: #EEF3EF;
+  --hair: #E0E9E4;
+  --rule: #CADBD3;
+  --rule-strong: #A9C0B5;
+  --text: #15231D;
+  --text-2: #3D4D46;
+  --muted: #56685F;
+  --faint: #63736B;
+  --action: #1F4FE0;
+  --action-hover: #1941BC;
+  --action-soft: #E8EEFD;
+  --action-line: #AFC0F4;
+  --on-action: #FFFFFF;
+  --ok: #2F6151;
+  --ok-soft: #E3EFE9;
+  --warn: #8A5A0B;
+  --warn-strong: #C98A1B;
+  --warn-soft: #FCF3E1;
+  --warn-line: #EACB8D;
+  --danger: #C2362B;
+  --danger-hover: #A42C23;
+  --danger-soft: #FBEAE8;
+  --danger-line: #EDB9B3;
+  --focus: #1F4FE0;
+  --selection: rgba(31, 79, 224, 0.18);
+  --scrim: rgba(12, 24, 19, 0.42);
+  --shadow-1: 0 1px 2px rgba(21, 35, 29, 0.06);
+  --shadow-2: 0 6px 18px -6px rgba(21, 35, 29, 0.16), 0 1px 3px rgba(21, 35, 29, 0.06);
+  --shadow-3: 0 18px 44px -12px rgba(21, 35, 29, 0.28), 0 2px 6px rgba(21, 35, 29, 0.08);
+  --map-water: #A9CDE2; --map-park: #CFE3D2; --map-land: #F1F4EF; --map-road: #FFFFFF; --map-label: #4B5C54;
+
+  color-scheme: light;
+}
+
+/* Dark appearance: the cloth rail stays, the paper turns to deep graphite-green. */
+:root[data-appearance="dark"] {
+  --paper: #111A16;
+  --sheet: #17221D;
+  --sheet-2: #1C2823;
+  --sheet-3: #22302A;
+  --hair: #26352E;
+  --rule: #33463D;
+  --rule-strong: #4A6257;
+  --text: #E4ECE7;
+  --text-2: #C3D1CA;
+  --muted: #9DB0A6;
+  --faint: #8A9E94;
+  --action: #86A2FF;
+  --action-hover: #A6BBFF;
+  --action-soft: rgba(134, 162, 255, 0.14);
+  --action-line: rgba(134, 162, 255, 0.42);
+  --on-action: #0C1430;
+  --ok: #8FC6AE;
+  --ok-soft: rgba(143, 198, 174, 0.13);
+  --warn: #F2C063;
+  --warn-strong: #F2B84B;
+  --warn-soft: rgba(242, 184, 75, 0.12);
+  --warn-line: rgba(242, 184, 75, 0.38);
+  --danger: #FF8A7E;
+  --danger-hover: #FFA79D;
+  --danger-soft: rgba(255, 138, 126, 0.12);
+  --danger-line: rgba(255, 138, 126, 0.38);
+  --focus: #86A2FF;
+  --selection: rgba(134, 162, 255, 0.3);
+  --scrim: rgba(0, 0, 0, 0.55);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-2: 0 8px 22px -8px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-3: 0 22px 50px -14px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.35);
+  --cloth: #142821;
+  --cloth-deep: #0F1F19;
+  --ev-1: #2E4A3F; --ev-2: #3F6656; --ev-3: #5C8D79; --ev-4: #86B5A0; --ev-5: #B8DCCB;
+  --map-water: #1F3C4D; --map-park: #1F3A2C; --map-land: #17221D; --map-road: #2A3A33; --map-label: #A7B9B0;
+  color-scheme: dark;
+}
+
+/* Palettes: the same book in another cloth. */
+:root[data-theme="oxblood"] {
+  --cloth: #4A1F1C; --cloth-deep: #3A1714; --cloth-text: #F0DEDA; --cloth-muted: #C8A29B;
+  --ev-1: #D7C2BD; --ev-2: #BF968E; --ev-3: #9A675E; --ev-4: #6E3A33; --ev-5: #4A1F1C;
+}
+:root[data-theme="oxblood"][data-appearance="dark"] {
+  --cloth: #351513; --cloth-deep: #29100E;
+  --ev-1: #4A2A26; --ev-2: #6E4039; --ev-3: #9A675E; --ev-4: #C79A91; --ev-5: #EBCBC4;
+}
+:root[data-theme="navy"] {
+  --cloth: #1C2B47; --cloth-deep: #152137; --cloth-text: #DCE4F2; --cloth-muted: #9FB0CF;
+  --ev-1: #C0CCE0; --ev-2: #93A6C8; --ev-3: #6179A4; --ev-4: #354E7C; --ev-5: #1C2B47;
+}
+:root[data-theme="navy"][data-appearance="dark"] {
+  --cloth: #141F34; --cloth-deep: #0F1828;
+  --ev-1: #26365A; --ev-2: #364D7C; --ev-3: #5671A4; --ev-4: #8AA2CF; --ev-5: #C3D2EE;
+}
+:root[data-theme="graphite"] {
+  --cloth: #2A2D2F; --cloth-deep: #202325; --cloth-text: #E3E5E6; --cloth-muted: #A9AEB1;
+  --ev-1: #C9CDCF; --ev-2: #A2A8AC; --ev-3: #737B80; --ev-4: #4A5155; --ev-5: #2A2D2F;
+}
+:root[data-theme="graphite"][data-appearance="dark"] {
+  --cloth: #1E2022; --cloth-deep: #17191A;
+  --ev-1: #33383B; --ev-2: #4D5458; --ev-3: #737B80; --ev-4: #A5ADB2; --ev-5: #D8DDE0;
+}
+
+/* Legacy names still read by a few components. */
+:root {
+  --ink: var(--text);
+  --line: var(--hair);
+  --line-strong: var(--rule);
+  --surface: var(--sheet);
+  --canvas: var(--paper);
+  --subtle: var(--sheet-2);
+}

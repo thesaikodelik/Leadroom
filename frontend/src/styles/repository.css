@@ -1,0 +1,243 @@
+/* Repository: every saved lead, its collections, the filter bar and the two drawers.
+   Written in the Survey Field Book world on top of tokens.css, base.css and run.css. */
+
+/* ---------- Header summary ---------- */
+.repository-page .page-header { margin-bottom: var(--space-3); }
+.repository-page .page-header + .repository-empty { margin-top: var(--space-5); }
+.repository-page .page-header .header-actions { flex-wrap: nowrap; }
+.repository-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 0; margin: 0 0 var(--space-5); color: var(--muted); font-size: var(--type-caption); }
+.repository-summary > span { display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap; }
+.repository-summary > span + span::before { content: ""; align-self: center; width: 1px; height: 12px; margin: 0 12px; background: var(--rule); }
+.repository-summary strong { font: var(--weight-medium) var(--type-body) var(--font-mono); color: var(--text); }
+
+/* ---------- The panel: filter bar, table, foot ---------- */
+.repository-panel { padding: 0; min-width: 0; max-width: 100%; container: repository / inline-size; }
+.repository-panel .table-wrap { border: 0; border-radius: 0; box-shadow: none; background: transparent; }
+.repository-panel th:first-child, .repository-panel td:first-child { padding-left: 18px; }
+.repository-panel th:last-child, .repository-panel td:last-child { width: 1%; padding-right: 10px; }
+.repository-panel td { height: 60px; }
+
+/* Filter bar: one row of equal-height controls. */
+.repository-toolbar { position: relative; z-index: 5; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 14px 18px; border-bottom: 1px solid var(--hair); }
+.repository-search { flex: 1 1 220px; min-width: 180px; max-width: 380px; }
+.repository-toolbar .table-count { margin-left: auto; padding-left: 4px; }
+
+.repository-collection-control { display: inline-flex; align-items: stretch; min-width: 0; }
+.collection-picker { position: relative; min-width: 0; display: flex; }
+.collection-picker-trigger {
+  min-width: 0; max-width: 300px; min-height: 38px; padding: 0 10px 0 11px; display: inline-flex; align-items: center; gap: 8px;
+  border: 1px solid var(--rule); border-radius: var(--radius) 0 0 var(--radius); background: var(--sheet); color: var(--text); cursor: pointer; text-align: left;
+  transition: border-color var(--dur-fast) ease, background-color var(--dur-fast) ease;
+}
+.collection-picker-trigger > svg { width: 16px; height: 16px; flex: none; color: var(--muted); }
+.collection-picker-trigger > svg:last-child { width: 14px; height: 14px; transition: transform var(--dur) var(--ease-out); }
+.collection-picker-trigger[aria-expanded="true"] > svg:last-child { transform: rotate(180deg); }
+.collection-picker-trigger > span { min-width: 0; display: inline-flex; align-items: baseline; gap: 8px; }
+.collection-picker-trigger small { font: var(--weight-semibold) 12.5px var(--font-label); text-transform: uppercase; letter-spacing: var(--label-tracking); color: var(--muted); }
+.collection-picker-trigger strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--weight-semibold); }
+.collection-picker-trigger:hover { border-color: var(--rule-strong); background: var(--sheet-2); }
+.collection-picker-trigger.has-selection { border-color: var(--action-line); background: var(--action-soft); }
+.collection-picker-trigger.has-selection strong, .collection-picker-trigger.has-selection > svg { color: var(--action); }
+.collection-manage-button.icon-button { width: 38px; height: auto; min-height: 38px; margin-left: -1px; border: 1px solid var(--rule); border-radius: 0 var(--radius) var(--radius) 0; background: var(--sheet); }
+.collection-manage-button.icon-button:hover { border-color: var(--rule-strong); background: var(--sheet-2); }
+.collection-picker-trigger:focus-visible, .collection-manage-button:focus-visible { position: relative; z-index: 1; outline-offset: 1px; }
+
+/* Market and source: the label sits inside the control, like a ruled field. */
+.repository-filters { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.repository-filters label {
+  min-width: 0; min-height: 38px; display: inline-flex; align-items: center; gap: 2px; padding-left: 11px;
+  border: 1px solid var(--rule); border-radius: var(--radius); background: var(--sheet); font-weight: var(--weight-regular); cursor: pointer;
+  transition: border-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease, background-color var(--dur-fast) ease;
+}
+.repository-filters label:hover { border-color: var(--rule-strong); }
+.repository-filters label:focus-within { border-color: var(--action); box-shadow: 0 0 0 3px var(--action-soft); }
+.repository-filters label > span { flex: none; font: var(--weight-semibold) 12.5px var(--font-label); text-transform: uppercase; letter-spacing: var(--label-tracking); color: var(--muted); }
+.repository-filters select { width: auto; min-width: 0; max-width: 190px; min-height: 36px; padding: 0 8px 0 6px; border: 0; background: transparent; font-weight: var(--weight-semibold); text-overflow: ellipsis; cursor: pointer; }
+.repository-filters select:hover, .repository-filters select:focus-visible { border: 0; box-shadow: none; }
+.repository-filters select option { background: var(--sheet); color: var(--text); }
+.repository-filters label.is-set { border-color: var(--action-line); background: var(--action-soft); }
+.repository-filters label.is-set > span, .repository-filters label.is-set select { color: var(--action); }
+
+/* Collection chips under the bar. */
+.active-collection-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 10px 18px; border-bottom: 1px solid var(--hair); background: var(--sheet-2); }
+.active-collection-filters > button:not(.clear-collection-filters) {
+  max-width: 260px; min-height: 28px; padding: 0 6px 0 10px; display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--action-line); border-radius: var(--radius-sm); background: var(--action-soft); color: var(--action);
+  font-size: var(--type-caption); font-weight: var(--weight-semibold); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.active-collection-filters > button svg { width: 13px; height: 13px; flex: none; opacity: 0.8; }
+.active-collection-filters > button:not(.clear-collection-filters):hover { border-color: var(--action); }
+.clear-collection-filters { min-height: 28px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font-size: var(--type-caption); font-weight: var(--weight-semibold); cursor: pointer; }
+.clear-collection-filters:hover { color: var(--action); text-decoration: underline; text-underline-offset: 3px; }
+
+/* ---------- Rows ---------- */
+.repository-panel th, .repository-panel td { padding-left: 10px; padding-right: 10px; }
+.repository-panel .business-link { min-width: 140px; max-width: 220px; }
+.repository-panel .business-link small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repository-panel .collection-stack { flex-wrap: wrap; max-width: 150px; }
+.repository-panel .collection-stack em { display: inline-block; max-width: 150px; line-height: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repository-panel td[data-label="Area"] { min-width: 100px; color: var(--text-2); }
+.repository-panel td[data-label="Email"] { min-width: 200px; }
+.repository-contacts { display: grid; gap: 3px; min-width: 0; }
+.repository-contacts .evidence-cell { max-width: 260px; }
+.repository-contacts .evidence-cell + .evidence-cell a { color: var(--text-2); font-size: var(--type-caption); }
+.repository-contacts.num .evidence-cell { min-width: max-content; max-width: none; white-space: nowrap; }
+.repository-contacts.num .evidence-cell a { overflow: visible; text-overflow: clip; }
+.repository-actions .icon-button { width: 30px; height: 32px; }
+.repository-sources { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; width: 64px; }
+.repository-sources small { width: 100%; color: var(--muted); font: var(--weight-medium) var(--type-micro) var(--font-mono); white-space: nowrap; }
+.repository-actions .row-actions { flex-wrap: nowrap; }
+
+/* ---------- Foot: evidence key and pages ---------- */
+.repository-foot { min-height: 50px; border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+.repository-foot .table-pagination { margin-left: auto; padding: 0; gap: 10px; }
+.repository-foot .table-pagination > span { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.repository-foot .table-pagination .button { min-height: 30px; padding: 0 11px; font-size: var(--type-caption); }
+
+/* ---------- No results and empty repository ---------- */
+.repository-no-results { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 14px; padding: var(--space-7) var(--space-5); color: var(--muted); }
+.repository-no-results > svg { width: 22px; height: 22px; flex: none; color: var(--ev-3); }
+.repository-no-results > div { display: grid; gap: 2px; }
+.repository-no-results strong { color: var(--text); }
+.repository-no-results span { font-size: var(--type-caption); }
+
+.repository-empty { grid-template-columns: 48px minmax(0, 1fr) auto; align-items: center; gap: var(--space-5); padding: var(--space-5) var(--space-6); }
+.repository-empty-icon { width: 48px; height: 48px; display: grid; place-items: center; border: 1px solid var(--hair); border-radius: var(--radius); background: var(--sheet); color: var(--ev-4); }
+.repository-empty-icon svg { width: 22px; height: 22px; }
+.repository-empty-copy { min-width: 0; display: grid; gap: 4px; }
+.repository-empty-copy h2 { font-size: var(--type-heading); }
+.repository-empty-copy p { max-width: 62ch; }
+.repository-empty-action { justify-self: end; }
+
+/* ---------- Collection picker popover ---------- */
+.collection-picker-popover {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; width: min(380px, calc(100cqi - 36px)); min-width: 260px;
+  display: grid; overflow: hidden; border: 1px solid var(--rule); border-radius: var(--radius-lg); background: var(--sheet); box-shadow: var(--shadow-3);
+  animation: picker-in var(--dur) var(--ease-out);
+}
+@keyframes picker-in { from { opacity: 0; transform: translateY(-4px); } }
+.collection-picker-search { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; padding: 10px; border-bottom: 1px solid var(--hair); }
+.collection-picker-search > svg { position: absolute; top: 21px; left: 21px; width: 16px; height: 16px; color: var(--muted); pointer-events: none; }
+.collection-picker-search input { min-height: 36px; padding-left: 34px; }
+.collection-picker-search select { width: auto; min-height: 36px; padding: 0 6px 0 9px; font-size: var(--type-caption); font-weight: var(--weight-semibold); color: var(--text-2); }
+.collection-option {
+  width: 100%; min-height: 44px; padding: 7px 14px; display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 12px;
+  border: 0; background: transparent; color: var(--text); font-weight: var(--weight-regular); text-align: left; cursor: pointer;
+  transition: background-color var(--dur-fast) ease;
+}
+.collection-option:hover { background: var(--sheet-2); }
+.collection-option > span { min-width: 0; display: grid; gap: 0; }
+.collection-option strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--weight-semibold); }
+.collection-option small { color: var(--muted); font-size: var(--type-micro); }
+.collection-option em { font: var(--weight-medium) var(--type-caption) var(--font-mono); font-style: normal; color: var(--muted); }
+.collection-option > svg { width: 16px; height: 16px; color: var(--muted); }
+.collection-option.selected { background: var(--action-soft); }
+.collection-option.selected em { color: var(--action); }
+.collection-option-all { border-bottom: 1px solid var(--hair); }
+.collection-option-all.selected > svg { color: var(--action); }
+.collection-option-list { max-height: min(320px, 50vh); overflow-y: auto; padding: 4px 0; }
+.collection-option-list:empty { display: none; }
+.collection-picker-empty { display: flex; align-items: center; gap: 12px; padding: 18px 14px; color: var(--muted); }
+.collection-picker-empty > svg { width: 18px; height: 18px; flex: none; color: var(--ev-3); }
+.collection-picker-empty > span { display: grid; gap: 1px; }
+.collection-picker-empty strong { color: var(--text); }
+.collection-picker-empty small { font-size: var(--type-caption); }
+.collection-picker-popover footer { min-height: 42px; padding: 6px 8px 6px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid var(--hair); background: var(--sheet-2); color: var(--muted); font-size: var(--type-caption); font-variant-numeric: tabular-nums; }
+.collection-picker-popover footer button { min-height: 30px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--action); font-weight: var(--weight-semibold); cursor: pointer; }
+.collection-picker-popover footer button:hover { background: var(--action-soft); }
+
+/* ---------- Collection manager drawer ---------- */
+.drawer.collection-manager { display: flex; flex-direction: column; overflow: hidden; }
+.collection-manager .drawer-head { flex: none; }
+.collection-manager-tools { flex: none; display: flex; align-items: center; gap: 12px; padding: 14px var(--space-5); border-bottom: 1px solid var(--hair); }
+.collection-manager-tools .search-input { flex: 1; display: flex; gap: 0; font-weight: var(--weight-regular); }
+.collection-manager-tools > span { color: var(--muted); font: var(--weight-medium) var(--type-caption) var(--font-mono); white-space: nowrap; }
+.collection-manager-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.collection-manager-list > div { display: flex; align-items: center; gap: 8px; padding: 0 14px 0 var(--space-5); border-bottom: 1px solid var(--hair); transition: background-color var(--dur-fast) ease; }
+.collection-manager-list > div:hover { background: var(--sheet-2); }
+.collection-manager-list > div:has(input:checked) { background: var(--action-soft); }
+.collection-manager-list label { flex: 1; min-width: 0; min-height: 54px; display: flex; align-items: center; gap: 14px; font-weight: var(--weight-regular); cursor: pointer; }
+.collection-manager-list label > span { min-width: 0; display: grid; gap: 0; }
+.collection-manager-list strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.collection-manager-list small { color: var(--muted); font-variant-numeric: tabular-nums; }
+.collection-merge-bar {
+  flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 16px var(--space-5) 20px;
+  border-top: 1px solid var(--rule); background: var(--sheet-2);
+}
+.collection-merge-bar > div { grid-column: 1 / -1; display: grid; gap: 1px; }
+.collection-merge-bar small { color: var(--muted); font-size: var(--type-caption); }
+.collection-merge-bar .button { min-width: 110px; }
+.collection-manager > .error-panel { flex: none; margin: 0 var(--space-5) var(--space-4); }
+
+/* ---------- Lead editor drawer ---------- */
+.repository-drawer .drawer-head span { flex-wrap: wrap; gap: 8px; }
+.repository-drawer .drawer-head span b { width: 1px; height: 12px; background: var(--rule); }
+.repository-drawer .drawer-head code { font-size: var(--type-caption); color: var(--muted); }
+.repository-edit-form { gap: var(--space-4); }
+.repository-edit-form textarea { min-height: 78px; font-family: var(--font-mono); font-size: var(--type-caption); }
+.repository-edit-form > .button { margin-top: var(--space-1); }
+.repository-edit-form .error-panel { margin: 0; }
+
+/* ---------- Narrower panels: each lead becomes a ruled entry ---------- */
+@container repository (max-width: 1000px) {
+  .repository-toolbar { padding: 12px 14px; }
+  .repository-collection-control { flex: 1 1 260px; }
+  .collection-picker, .collection-picker-trigger { flex: 1; max-width: none; }
+  .collection-picker-trigger > svg:last-child { margin-left: auto; }
+  .repository-search { flex: 1 1 260px; max-width: none; }
+  .repository-filters { flex: 1 1 auto; }
+  .repository-filters label { flex: 1 1 0; }
+  .repository-filters select { flex: 1; max-width: none; }
+  .active-collection-filters { padding: 10px 14px; }
+
+  .repository-panel table { display: block; min-width: 0; }
+  .repository-panel thead { display: none; }
+  .repository-panel tbody { display: block; }
+  .repository-panel tr { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; padding: 12px 16px 10px; border-bottom: 1px solid var(--hair); }
+  .repository-panel tbody tr:last-child { border-bottom: 0; }
+  .repository-panel tbody tr:hover td { background: transparent; }
+  .repository-panel tbody tr:hover { background: var(--sheet-2); }
+  .repository-panel td, .repository-panel td:first-child, .repository-panel td:last-child {
+    width: auto; min-width: 0; height: auto; min-height: 30px; padding: 4px 0; display: grid; grid-template-columns: 78px minmax(0, 1fr); align-items: start; gap: 10px;
+    border: 0; background: transparent;
+  }
+  .repository-panel td::before { content: attr(data-label); font: var(--weight-semibold) 12.5px var(--font-label); text-transform: uppercase; letter-spacing: var(--label-tracking); color: var(--muted); }
+  .repository-panel td:first-child { grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr); min-height: 40px; padding: 2px 124px 6px 0; }
+  .repository-panel td:first-child::before { display: none; }
+  .repository-panel td.repository-actions { position: absolute; top: 8px; right: 8px; width: auto; min-height: 0; padding: 0; display: block; border: 0; }
+  .repository-panel td.repository-actions::before { display: none; }
+  .repository-panel .business-link { max-width: none; }
+  .repository-panel .business-link, .repository-panel .business-link small { overflow-wrap: anywhere; white-space: normal; }
+  .repository-panel .collection-stack { max-width: none; }
+  .repository-sources { width: auto; flex-wrap: nowrap; }
+  .repository-sources small { width: auto; margin-left: 4px; }
+  .repository-contacts .evidence-cell { max-width: 100%; }
+  .repository-panel td::before { line-height: 22px; }
+  .repository-panel td:not(:first-child) > * { min-height: 22px; display: flex; align-items: center; }
+  .repository-panel td:not(:first-child) > .repository-contacts { display: grid; }
+  .repository-foot { padding: 10px 14px; }
+}
+
+@container repository (max-width: 560px) {
+  .repository-collection-control, .repository-search { flex-basis: 100%; }
+  .repository-filters { flex-basis: 100%; flex-wrap: wrap; }
+  .repository-filters label { flex-basis: 100%; }
+  .repository-toolbar .table-count { margin-left: 0; }
+  .repository-panel tr { grid-template-columns: minmax(0, 1fr); padding: 10px 14px 8px; }
+  .repository-panel td, .repository-panel td:first-child, .repository-panel td:last-child { grid-template-columns: 70px minmax(0, 1fr); }
+  .repository-panel td:first-child { grid-template-columns: minmax(0, 1fr); padding-right: 118px; }
+  .repository-foot { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .repository-foot .table-pagination { width: 100%; margin-left: 0; justify-content: space-between; }
+  .collection-picker-popover { min-width: 0; }
+}
+
+/* The page itself narrows the header and empty state. */
+@container page (max-width: 620px) {
+  .repository-empty { grid-template-columns: 44px minmax(0, 1fr); gap: var(--space-4); padding: var(--space-5); }
+  .repository-empty-icon { width: 44px; height: 44px; }
+  .repository-empty-action { grid-column: 1 / -1; width: 100%; justify-self: stretch; }
+  .repository-page .page-header { flex-direction: column; align-items: stretch; gap: var(--space-4); }
+  .repository-summary { gap: 4px 16px; }
+  .repository-summary > span + span::before { display: none; }
+  .repository-page .page-header .header-actions { flex-wrap: wrap; }
+}
