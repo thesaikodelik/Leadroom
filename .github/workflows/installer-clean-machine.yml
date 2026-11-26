@@ -270,6 +270,13 @@ jobs:
           }
           ConvertTo-Json @($release) -Depth 5 | Set-Content next\releases.json -Encoding utf8
           $server = Start-Process python -ArgumentList @("-m", "http.server", "8899", "--bind", "127.0.0.1", "--directory", (Resolve-Path next).Path) -PassThru -WindowStyle Hidden
+          # The app is asked to check at once, so wait until the feed answers; a slow
+          # runner can take several seconds to start Python.
+          $feedReady = $false
+          for ($i = 0; $i -lt 60 -and -not $feedReady; $i++) {
+            try { Invoke-RestMethod http://127.0.0.1:8899/releases.json -TimeoutSec 2 | Out-Null; $feedReady = $true } catch { Start-Sleep -Milliseconds 500 }
+          }
+          if (-not $feedReady) { throw "The test release feed did not start." }
           Set-Content "$home_\update-feed.txt" "http://127.0.0.1:8899/releases.json"
           $token = (Get-Content "$home_\leadroom.instance.json" | ConvertFrom-Json).token
           # A cookie in a web session: a Cookie entry in -Headers is not sent by every PowerShell.
