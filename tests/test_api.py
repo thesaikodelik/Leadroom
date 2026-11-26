@@ -700,6 +700,8 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.json()["verdict"], "recommended")
         self.assertEqual(response.json()["tokens_per_second"], 25.0)
         self.assertEqual(len(response.json()["checks"]), 6)
+        # The fit test runs the model with the window real runs use, so its speed is representative.
+        self.assertEqual(post.call_args.kwargs["json"]["options"]["num_ctx"], 8192)
 
     @patch("app.api.search_business_sites", return_value=[SITE])
     def test_new_run_uses_saved_default_model_endpoint_and_custom_filters(self, _search):

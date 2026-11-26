@@ -69,6 +69,14 @@ def _data_path(relative: str) -> Path:
     return Path(root) / relative if root else Path("data") / relative
 
 
+# The context window Leadroom asks of a local model, in tokens. Pages are split into
+# chunks of this size, and Ollama must be told the same number: it otherwise runs
+# models with its own default (4096 tokens in Ollama 0.24) and silently drops the
+# start of anything longer. Every Ollama call uses it, so the model is not reloaded
+# when Leadroom switches between reading sites, drafting email and the fit test.
+MODEL_CONTEXT_TOKENS = 8192
+
+
 class ScraperConfig(BaseModel):
     niche: str
     location: str

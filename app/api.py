@@ -37,7 +37,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.compliance import ComplianceService
-from app.config import DEFAULT_BLOCKED_DOMAINS, ScraperConfig
+from app.config import DEFAULT_BLOCKED_DOMAINS, MODEL_CONTEXT_TOKENS, ScraperConfig
 from app.database import RUN_TERMINAL, RunRepository
 from app.email_delivery import DeliveryUncertainError, EmailDeliveryConfig, SMTPEmailProvider
 from app.local_data import LocalDataService
@@ -1460,7 +1460,7 @@ def create_app(database_path: Path | None = None, frontend_dir: Path | None = No
                     "prompt": prompt,
                     "format": schema,
                     "stream": False,
-                    "options": {"temperature": 0, "num_predict": 220},
+                    "options": {"temperature": 0, "num_predict": 220, "num_ctx": MODEL_CONTEXT_TOKENS},
                 },
                 timeout=120,
                 follow_redirects=True,

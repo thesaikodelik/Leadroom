@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from scrapegraphai.graphs import SmartScraperGraph
 from scrapegraphai.telemetry import disable_telemetry
 
-from app.config import ScraperConfig
+from app.config import MODEL_CONTEXT_TOKENS, ScraperConfig
 from app.enrichment import HtmlFetcher, apply_enrichment, enrich_public_pages
 from app.filters import same_business_domain
 from app.models import LeadExtraction
@@ -109,12 +109,13 @@ def scrape_business_site(
     llm_config: dict[str, Any] = {
         "model": config.model,
         "temperature": 0,
-        "model_tokens": 8192,
+        "model_tokens": MODEL_CONTEXT_TOKENS,
     }
     if config.ollama_base_url:
         llm_config["base_url"] = config.ollama_base_url
     if provider == "ollama":
         llm_config["format"] = LeadExtraction.model_json_schema()
+        llm_config["num_ctx"] = MODEL_CONTEXT_TOKENS
     elif config.llm_api_key:
         llm_config["api_key"] = config.llm_api_key
     graph_config = {

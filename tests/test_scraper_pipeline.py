@@ -125,6 +125,23 @@ class ScraperPipelineTests(unittest.TestCase):
     @patch("app.scraper.enrich_public_pages", return_value=({}, {}, []))
     @patch("app.scraper.HtmlFetcher")
     @patch("app.scraper.SmartScraperGraph")
+    def test_ollama_is_given_a_context_window_as_large_as_each_page_chunk(self, graph_class, fetcher_class, _enrich):
+        # Ollama keeps only its default window (4096 tokens in 0.24) unless told
+        # otherwise, and drops the start of a longer chunk: the part of a page that
+        # usually holds the business name and contact links.
+        self._fetcher(fetcher_class, "https://salon.example/")
+        graph_class.return_value.run.return_value = {"content": {"business_name": "Salon"}}
+        config = ScraperConfig(niche="salons", location="London")
+
+        scrape_business_site("https://salon.example/", config)
+
+        llm = graph_class.call_args.kwargs["config"]["llm"]
+        self.assertEqual(llm["num_ctx"], 8192)
+        self.assertEqual(llm["num_ctx"], llm["model_tokens"])
+
+    @patch("app.scraper.enrich_public_pages", return_value=({}, {}, []))
+    @patch("app.scraper.HtmlFetcher")
+    @patch("app.scraper.SmartScraperGraph")
     def test_scraper_configures_openai_compatible_model_without_ollama_format(
         self, graph_class, fetcher_class, _enrich
     ):
@@ -558,3 +575,29 @@ def test_site_name_reads_the_home_page_name_without_the_model():
     }
     for html, expected in cases.items():
         assert site_name(BeautifulSoup(html, "lxml")) == expected
+
+
+def test_scrapegraphai_passes_the_context_window_on_to_ollama():
+    """No mocks: the real ScrapeGraphAI graph must hand num_ctx to its ChatOllama."""
+    from scrapegraphai.graphs import SmartScraperGraph
+
+    from app.config import MODEL_CONTEXT_TOKENS
+
+    graph = SmartScraperGraph(
+        prompt="Find the business name.",
+        source="<html><body><h1>Salon</h1></body></html>",
+        config={
+            "llm": {
+                "model": "ollama/llama3.2:3b",
+                "temperature": 0,
+                "model_tokens": MODEL_CONTEXT_TOKENS,
+                "num_ctx": MODEL_CONTEXT_TOKENS,
+                "base_url": "http://127.0.0.1:11434",
+            },
+            "verbose": False,
+            "headless": True,
+        },
+    )
+
+    assert graph.llm_model.num_ctx == MODEL_CONTEXT_TOKENS
+    assert graph.model_token == MODEL_CONTEXT_TOKENS

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "local-lead-scraper"
-version = "0.1.6"
+version = "0.1.7"
 description = "Local lead research pipeline for public small-business websites"
 readme = "README.md"
 authors = [{ name = "Leadroom contributors" }]
@@ -23,7 +23,7 @@ dependencies = [
   "pywebview==6.2.1",
   "psycopg[binary]==3.3.3",
   "scrapling[fetchers]==0.4.11",
-  "scrapegraphai==2.1.5",
+  "scrapegraphai==2.3.1",
   "SQLAlchemy==2.0.51",
   "tldextract==5.3.1",
   "uvicorn==0.51.0",

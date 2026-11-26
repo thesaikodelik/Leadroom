@@ -7,6 +7,8 @@ from typing import Any
 
 import httpx
 
+from app.config import MODEL_CONTEXT_TOKENS
+
 
 @dataclass(frozen=True)
 class CampaignBrief:
@@ -87,7 +89,7 @@ def _generate(
                 "model": model_name,
                 "stream": False,
                 "format": "json",
-                "options": {"temperature": 0.2},
+                "options": {"temperature": 0.2, "num_ctx": MODEL_CONTEXT_TOKENS},
                 "messages": [{"role": "user", "content": prompt}],
             },
             timeout=timeout,

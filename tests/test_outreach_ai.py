@@ -59,3 +59,5 @@ class OutreachAITests(TestCase):
         self.assertIn("a relevant idea", body)
         self.assertEqual(metadata["personalized_by"], "ai")
         self.assertEqual(post.call_args.kwargs["json"]["format"], "json")
+        # Same window as site reading, so Ollama does not reload the model between them.
+        self.assertEqual(post.call_args.kwargs["json"]["options"]["num_ctx"], 8192)
